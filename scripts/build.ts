@@ -36,7 +36,7 @@ async function getVersion(): Promise<string> {
 
 async function buildPlatform(platform: Platform, version: string): Promise<void> {
   const outDir = path.join(NPM_DIR, platform.name)
-  const binName = `stackboi${platform.ext}`
+  const binName = `sb${platform.ext}`
   const outPath = path.join(outDir, binName)
 
   console.log(`Building for ${platform.name}...`)
@@ -54,7 +54,7 @@ async function buildPlatform(platform: Platform, version: string): Promise<void>
   const pkgJson = {
     name: `@stackboi/${platform.name}`,
     version,
-    description: `stackboi binary for ${platform.name}`,
+    description: `sb binary for ${platform.name}`,
     license: 'MIT',
     repository: {
       type: 'git',
@@ -63,7 +63,7 @@ async function buildPlatform(platform: Platform, version: string): Promise<void>
     os: [platform.os],
     cpu: [platform.arch],
     bin: {
-      stackboi: `./${binName}`,
+      sb: `./${binName}`,
     },
   }
 

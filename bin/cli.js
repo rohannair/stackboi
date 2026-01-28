@@ -36,7 +36,7 @@ function getBinaryPath() {
     const pkgPath = require.resolve(`${pkg}/package.json`)
     const pkgDir = path.dirname(pkgPath)
     const pkgJson = require(pkgPath)
-    const binName = pkgJson.bin?.stackboi || 'stackboi'
+    const binName = pkgJson.bin?.sb || 'sb'
     return path.join(pkgDir, binName)
   } catch {
     console.error(`Failed to find binary for your platform.`)
@@ -55,7 +55,7 @@ const result = spawnSync(binaryPath, args, {
 })
 
 if (result.error) {
-  console.error(`Failed to run stackboi: ${result.error.message}`)
+  console.error(`Failed to run sb: ${result.error.message}`)
   process.exit(1)
 }
 

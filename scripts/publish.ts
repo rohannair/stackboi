@@ -14,16 +14,28 @@ const NPM_DIR = path.join(ROOT, 'npm')
 
 const PLATFORMS = ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64', 'win32-x64']
 
-async function publishPackage(dir: string, name: string, dryRun: boolean): Promise<boolean> {
+async function publishPackage(
+  dir: string,
+  name: string,
+  dryRun: boolean,
+  otp?: string,
+): Promise<boolean> {
   console.log(`Publishing ${name}...`)
 
-  const args = dryRun
-    ? ['publish', '--dry-run', '--access', 'public']
-    : ['publish', '--access', 'public']
-  const result = await $`npm ${args}`.cwd(dir).nothrow()
+  const args = ['publish', '--access', 'public']
+  if (dryRun) args.push('--dry-run')
+  if (otp) args.push('--otp', otp)
 
-  if (result.exitCode !== 0) {
-    console.error(`  Failed: ${result.stderr.toString()}`)
+  // Use spawn with inherit to allow interactive passkey auth
+  const proc = Bun.spawn(['npm', ...args], {
+    cwd: dir,
+    stdio: ['inherit', 'inherit', 'inherit'],
+  })
+
+  const exitCode = await proc.exited
+
+  if (exitCode !== 0) {
+    console.error(`  Failed to publish ${name}`)
     return false
   }
 
@@ -34,6 +46,8 @@ async function publishPackage(dir: string, name: string, dryRun: boolean): Promi
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
   const dryRun = args.includes('--dry-run')
+  const otpArg = args.find((arg) => arg.startsWith('--otp='))
+  const otp = otpArg?.split('=')[1]
 
   if (dryRun) {
     console.log('DRY RUN - No packages will be published\n')
@@ -52,14 +66,14 @@ async function main(): Promise<void> {
   // Publish platform packages first
   for (const platform of PLATFORMS) {
     const pkgDir = path.join(NPM_DIR, platform)
-    const binPath = path.join(pkgDir, platform.includes('win32') ? 'stackboi.exe' : 'stackboi')
+    const binPath = path.join(pkgDir, platform.includes('win32') ? 'sb.exe' : 'sb')
 
     if (!fs.existsSync(binPath)) {
       console.log(`  Skipping ${platform} (no binary found)`)
       continue
     }
 
-    const success = await publishPackage(pkgDir, `@stackboi/${platform}`, dryRun)
+    const success = await publishPackage(pkgDir, `@stackboi/${platform}`, dryRun, otp)
     if (!success && !dryRun) {
       console.error('Aborting due to publish failure')
       process.exit(1)
@@ -69,7 +83,7 @@ async function main(): Promise<void> {
   console.log('\nPublishing main package...\n')
 
   // Publish main package
-  const success = await publishPackage(ROOT, 'stackboi', dryRun)
+  const success = await publishPackage(ROOT, 'stackboi', dryRun, otp)
   if (!success) {
     process.exit(1)
   }

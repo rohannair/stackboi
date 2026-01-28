@@ -61,8 +61,12 @@ async function main(): Promise<void> {
   else if (args.includes('--minor')) bump = 'minor'
   else if (args.includes('--patch')) bump = 'patch'
 
+  // Parse OTP
+  const otpArg = args.find((arg) => arg.startsWith('--otp='))
+  const otp = otpArg?.split('=')[1]
+
   if (!bump) {
-    console.error('Usage: bun scripts/release.ts --patch|--minor|--major')
+    console.error('Usage: bun scripts/release.ts --patch|--minor|--major [--otp=CODE]')
     process.exit(1)
   }
 
@@ -101,11 +105,16 @@ async function main(): Promise<void> {
   await $`git tag v${newVersion}`.cwd(ROOT)
   console.log(`  Created tag v${newVersion}`)
 
-  // Publish
+  // Publish (use spawn with inherit for interactive passkey auth)
   console.log('\nPublishing to npm...')
-  const publishResult = await $`bun scripts/publish.ts`.cwd(ROOT).nothrow()
+  const publishArgs = otp ? ['scripts/publish.ts', `--otp=${otp}`] : ['scripts/publish.ts']
+  const publishProc = Bun.spawn(['bun', ...publishArgs], {
+    cwd: ROOT,
+    stdio: ['inherit', 'inherit', 'inherit'],
+  })
+  const publishExitCode = await publishProc.exited
 
-  if (publishResult.exitCode !== 0) {
+  if (publishExitCode !== 0) {
     console.error('\nPublish failed. You may need to:')
     console.error('  1. Fix the issue')
     console.error('  2. Run: bun run publish:all')
