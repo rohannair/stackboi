@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "sessionId": "a151e077-4d21-4efb-ad9d-a5f3d204010f",
+  "status": "running",
+  "startedAt": "2026-01-28T21:04:10.863Z",
+  "updatedAt": "2026-01-28T21:07:55.608Z",
+  "currentIteration": 0,
+  "maxIterations": 25,
+  "tasksCompleted": 0,
+  "isPaused": false,
+  "agentPlugin": "claude",
+  "trackerState": {
+    "plugin": "json",
+    "prdPath": "./tasks/prd.json",
+    "totalTasks": 16,
+    "tasks": [
+      {
+        "id": "US-001",
+        "title": "Initialize stack metadata storage",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-002",
+        "title": "Create new stack with initial branch",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-003",
+        "title": "Add branch to existing stack",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-004",
+        "title": "Display stack tree view",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-005",
+        "title": "Poll GitHub for PR status updates",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-006",
+        "title": "Prompt sync on merge detection",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-007",
+        "title": "Sync stack after merge (rebase with --update-refs)",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-008",
+        "title": "Configure and enable git rerere",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-009",
+        "title": "Handle conflicts with rerere resolution",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-010",
+        "title": "Push all branches in stack",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-011",
+        "title": "Create GitHub PR from branch",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-012",
+        "title": "Update PR metadata after sync",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-013",
+        "title": "View PR in browser",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-014",
+        "title": "Switch between stacks (tabs)",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-015",
+        "title": "Delete branch from stack",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-016",
+        "title": "Reorder branches in stack",
+        "status": "open",
+        "completedInSession": false
+      }
+    ]
+  },
+  "iterations": [],
+  "skippedTaskIds": [],
+  "cwd": "/Users/rohan/Developer/projects/stackboi",
+  "activeTaskIds": [],
+  "subagentPanelVisible": false
+}

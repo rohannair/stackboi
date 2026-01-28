@@ -1,0 +1,277 @@
+{
+  "name": "Stackboi - Stacked Diffs TUI for GitHub",
+  "branchName": "feature/stackboi",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Initialize stack metadata storage",
+      "description": "As a user, I want to initialize stackboi in my repo so that it can track my stacked branches.",
+      "acceptanceCriteria": [
+        "`stackboi init` command creates `.stackboi.json` in repo root",
+        "Schema includes: stacks array, global settings, rerere preferences",
+        "Validates Git version is 2.38+ (required for --update-refs)",
+        "Adds `.stackboi.json` to `.gitignore` suggestion (user choice)",
+        "Detects existing `gh` CLI auth, fails gracefully if not authenticated"
+      ],
+      "priority": 1,
+      "passes": true,
+      "dependsOn": [],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-002",
+      "title": "Create new stack with initial branch",
+      "description": "As a user, I want to create a new stack from my current branch so that I can start building dependent changes.",
+      "acceptanceCriteria": [
+        "TUI command creates a new stack entry in metadata",
+        "Records base branch (e.g., `main`) as stack root",
+        "Creates first feature branch with user-provided name",
+        "Switches to the new branch automatically",
+        "Updates metadata with branch -> stack relationship"
+      ],
+      "priority": 2,
+      "passes": false,
+      "dependsOn": [
+        "US-001"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Add branch to existing stack",
+      "description": "As a user, I want to add a new branch on top of my current stacked branch so that I can continue building dependent changes.",
+      "acceptanceCriteria": [
+        "TUI command creates new branch from current HEAD",
+        "Adds branch to current stack's branch list in correct order",
+        "Records parent branch relationship in metadata",
+        "Switches to the new branch automatically"
+      ],
+      "priority": 3,
+      "passes": false,
+      "dependsOn": [
+        "US-002"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Display stack tree view",
+      "description": "As a user, I want to see all my stacks in a tree visualization so that I can understand the current state.",
+      "acceptanceCriteria": [
+        "Ink-based TUI renders tree with branch hierarchy",
+        "Each branch shows: name, PR number (if exists), PR status, sync status",
+        "Sync status indicates: up-to-date, needs push, needs rebase, conflicts",
+        "Tree uses box-drawing characters for clear hierarchy",
+        "Keyboard navigation: arrow keys to move, enter to select"
+      ],
+      "priority": 4,
+      "passes": false,
+      "dependsOn": [
+        "US-002"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Poll GitHub for PR status updates",
+      "description": "As a user, I want the TUI to check GitHub for merged PRs so that I know when to sync my stack.",
+      "acceptanceCriteria": [
+        "Uses `gh` CLI to fetch PR status for all tracked branches",
+        "Polls on configurable interval (default: 30 seconds) when TUI is open",
+        "Updates tree view status indicators in real-time",
+        "Detects when a PR has been merged (any strategy)"
+      ],
+      "priority": 5,
+      "passes": false,
+      "dependsOn": [
+        "US-004"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Prompt sync on merge detection",
+      "description": "As a user, I want to be prompted when a PR is merged so that I can sync child branches.",
+      "acceptanceCriteria": [
+        "Shows notification overlay when merge detected",
+        "Notification shows which PR was merged and affected child branches",
+        "Offers 'Sync now?' prompt with Y/N",
+        "'N' dismisses and updates status indicator to show pending sync",
+        "'Y' triggers sync operation (US-007)"
+      ],
+      "priority": 6,
+      "passes": false,
+      "dependsOn": [
+        "US-005"
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Sync stack after merge (rebase with --update-refs)",
+      "description": "As a user, I want to sync my stack after a PR is merged so that child branches are rebased correctly.",
+      "acceptanceCriteria": [
+        "Fetches latest from remote (origin)",
+        "Identifies merged branch and all descendants in stack",
+        "Runs `git rebase --update-refs` to rebase descendants onto new base",
+        "--update-refs automatically updates all tracked branch pointers",
+        "Shows progress in TUI during rebase operation",
+        "On success, removes merged branch from stack metadata"
+      ],
+      "priority": 7,
+      "passes": false,
+      "dependsOn": [
+        "US-006"
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Configure and enable git rerere",
+      "description": "As a user, I want stackboi to configure git rerere so that conflict resolutions are remembered.",
+      "acceptanceCriteria": [
+        "On init, enables `rerere.enabled = true` in local git config",
+        "Enables `rerere.autoUpdate = true` for automatic staging",
+        "Stores rerere training data in standard `.git/rr-cache`",
+        "Shows status of rerere (trained resolutions count) in TUI"
+      ],
+      "priority": 8,
+      "passes": false,
+      "dependsOn": [
+        "US-001"
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Handle conflicts with rerere resolution",
+      "description": "As a user, I want automatic conflict resolution using learned patterns so that repeated conflicts resolve automatically.",
+      "acceptanceCriteria": [
+        "During rebase, git rerere automatically applies known resolutions",
+        "If rerere resolves all conflicts, rebase continues automatically",
+        "If unresolved conflicts remain, pauses rebase and notifies user",
+        "Shows which files have unresolved conflicts",
+        "Provides option to open editor or abort"
+      ],
+      "priority": 9,
+      "passes": false,
+      "dependsOn": [
+        "US-007",
+        "US-008"
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "Push all branches in stack",
+      "description": "As a user, I want to push all branches in my stack so that GitHub PRs are updated.",
+      "acceptanceCriteria": [
+        "TUI command pushes all branches in selected stack",
+        "Uses `--force-with-lease` for safety",
+        "Shows progress per branch",
+        "Reports success/failure for each branch",
+        "Handles case where branch doesn't have upstream yet (sets upstream)"
+      ],
+      "priority": 10,
+      "passes": false,
+      "dependsOn": [
+        "US-004"
+      ]
+    },
+    {
+      "id": "US-011",
+      "title": "Create GitHub PR from branch",
+      "description": "As a user, I want to create a PR for my current branch so that it's linked to the stack.",
+      "acceptanceCriteria": [
+        "TUI command opens PR creation flow",
+        "Automatically sets base branch to parent branch in stack (or stack root if first)",
+        "Suggests PR title from branch name or first commit",
+        "Adds stack visualization to PR description",
+        "Adds label indicating stack position (e.g., `stack:2/4`)",
+        "Opens created PR in browser"
+      ],
+      "priority": 11,
+      "passes": false,
+      "dependsOn": [
+        "US-004"
+      ]
+    },
+    {
+      "id": "US-012",
+      "title": "Update PR metadata after sync",
+      "description": "As a user, I want PR base branches and descriptions to update after syncing so that GitHub reflects the current state.",
+      "acceptanceCriteria": [
+        "After successful sync, updates base branch of affected PRs via GitHub API",
+        "Updates stack visualization in PR descriptions",
+        "Updates stack position labels if order changed",
+        "Uses `gh` CLI for all GitHub operations"
+      ],
+      "priority": 12,
+      "passes": false,
+      "dependsOn": [
+        "US-007",
+        "US-011"
+      ]
+    },
+    {
+      "id": "US-013",
+      "title": "View PR in browser",
+      "description": "As a user, I want to quickly open a PR in my browser so that I can review or share it.",
+      "acceptanceCriteria": [
+        "Keyboard shortcut from tree view opens selected branch's PR",
+        "Uses `gh pr view --web` or equivalent",
+        "Shows error if branch doesn't have a PR yet"
+      ],
+      "priority": 13,
+      "passes": false,
+      "dependsOn": [
+        "US-011"
+      ]
+    },
+    {
+      "id": "US-014",
+      "title": "Switch between stacks (tabs)",
+      "description": "As a user, I want to switch between multiple independent stacks so that I can manage separate workstreams.",
+      "acceptanceCriteria": [
+        "Tab bar or selector shows all stacks",
+        "Stacks labeled by base branch or custom name",
+        "Keyboard shortcut to cycle through stacks",
+        "Selected stack determines which tree is displayed"
+      ],
+      "priority": 14,
+      "passes": false,
+      "dependsOn": [
+        "US-004"
+      ]
+    },
+    {
+      "id": "US-015",
+      "title": "Delete branch from stack",
+      "description": "As a user, I want to remove a branch from my stack (after merge or abandonment) so that the tree stays clean.",
+      "acceptanceCriteria": [
+        "TUI command removes branch from stack metadata",
+        "Optionally deletes local branch",
+        "Optionally deletes remote branch",
+        "Re-links child branches to deleted branch's parent",
+        "Updates affected PRs' base branches on GitHub"
+      ],
+      "priority": 15,
+      "passes": false,
+      "dependsOn": [
+        "US-004"
+      ]
+    },
+    {
+      "id": "US-016",
+      "title": "Reorder branches in stack",
+      "description": "As a user, I want to reorder branches in my stack so that I can adjust dependencies.",
+      "acceptanceCriteria": [
+        "TUI provides move up/down commands for selected branch",
+        "Validates reorder won't create impossible state",
+        "Triggers rebase to apply new order",
+        "Updates metadata with new order",
+        "Updates PR base branches accordingly"
+      ],
+      "priority": 16,
+      "passes": false,
+      "dependsOn": [
+        "US-007"
+      ]
+    }
+  ],
+  "metadata": {
+    "updatedAt": "2026-01-28T21:07:55.603Z"
+  }
+}
