@@ -8,6 +8,7 @@ import { newStack } from "./commands/new"
 import { addBranch } from "./commands/add"
 import { view } from "./commands/view"
 import { createPR } from "./commands/createpr"
+import { showLicense } from "./commands/license"
 
 // Commands (exported for testing)
 
@@ -46,6 +47,13 @@ export const createPrCommand = Command.make(
     })
 )
 
+export const licenseCommand = Command.make(
+  "license",
+  { type: Args.text({ name: "type" }).pipe(Args.optional) },
+  ({ type }) =>
+    Effect.promise(() => showLicense(type._tag === "Some" ? type.value : undefined))
+)
+
 // Main CLI app (exported for testing)
 export const command = Command.make("stackboi", {}).pipe(
   Command.withSubcommands([
@@ -54,6 +62,7 @@ export const command = Command.make("stackboi", {}).pipe(
     addCommand,
     viewCommand,
     createPrCommand,
+    licenseCommand,
   ])
 )
 

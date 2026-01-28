@@ -20,6 +20,7 @@ import {
   generateTitleFromBranchName,
   updatePRMetadataAfterSync,
 } from "./createpr";
+import { showCopyrightNotice } from "./license";
 
 // Sync operation state
 export type SyncState =
@@ -1912,6 +1913,9 @@ export async function view(): Promise<void> {
   if (!(await isGitRepo())) {
     throw new Error("Not a git repository");
   }
+
+  showCopyrightNotice();
+  console.log("");
 
   const { waitUntilExit } = render(<App />);
   await waitUntilExit();
