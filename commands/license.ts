@@ -1,7 +1,7 @@
 const COPYRIGHT_NOTICE = `Stackboi  Copyright (C) 2026 0xrohan10
 This program comes with ABSOLUTELY NO WARRANTY; for details type 'stackboi license w'.
 This is free software, and you are welcome to redistribute it
-under certain conditions; type 'stackboi license c' for details.`;
+under certain conditions; type 'stackboi license c' for details.`
 
 const WARRANTY_DISCLAIMER = `                     DISCLAIMER OF WARRANTY
 
@@ -24,7 +24,7 @@ USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OF
 DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD
 PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS),
 EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF
-SUCH DAMAGES.`;
+SUCH DAMAGES.`
 
 const CONDITIONS = `                     CONDITIONS FOR REDISTRIBUTION
 
@@ -50,21 +50,21 @@ Key conditions for redistribution:
    convey the machine-readable Corresponding Source.
 
 For the complete terms and conditions, see the LICENSE file or visit:
-https://www.gnu.org/licenses/gpl-3.0.html`;
+https://www.gnu.org/licenses/gpl-3.0.html`
 
 export function showCopyrightNotice(): void {
-  console.log(COPYRIGHT_NOTICE);
+  console.log(COPYRIGHT_NOTICE)
 }
 
 export async function showLicense(type?: string): Promise<void> {
-  if (type === "w" || type === "warranty") {
-    console.log(WARRANTY_DISCLAIMER);
-  } else if (type === "c" || type === "conditions") {
-    console.log(CONDITIONS);
+  if (type === 'w' || type === 'warranty') {
+    console.log(WARRANTY_DISCLAIMER)
+  } else if (type === 'c' || type === 'conditions') {
+    console.log(CONDITIONS)
   } else {
-    showCopyrightNotice();
-    console.log("\nUsage:");
-    console.log("  stackboi license w         Show warranty disclaimer");
-    console.log("  stackboi license c         Show redistribution conditions");
+    showCopyrightNotice()
+    console.log('\nUsage:')
+    console.log('  stackboi license w         Show warranty disclaimer')
+    console.log('  stackboi license c         Show redistribution conditions')
   }
 }

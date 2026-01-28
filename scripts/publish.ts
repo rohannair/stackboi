@@ -5,80 +5,76 @@
  * Publishes all platform packages and the main package to npm
  */
 
-import { $ } from "bun";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { $ } from 'bun'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
-const ROOT = path.resolve(import.meta.dir, "..");
-const NPM_DIR = path.join(ROOT, "npm");
+const ROOT = path.resolve(import.meta.dir, '..')
+const NPM_DIR = path.join(ROOT, 'npm')
 
-const PLATFORMS = [
-  "darwin-arm64",
-  "darwin-x64",
-  "linux-x64",
-  "linux-arm64",
-  "win32-x64",
-];
+const PLATFORMS = ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64', 'win32-x64']
 
 async function publishPackage(dir: string, name: string, dryRun: boolean): Promise<boolean> {
-  console.log(`Publishing ${name}...`);
+  console.log(`Publishing ${name}...`)
 
-  const args = dryRun ? ["publish", "--dry-run", "--access", "public"] : ["publish", "--access", "public"];
-  const result = await $`npm ${args}`.cwd(dir).nothrow();
+  const args = dryRun
+    ? ['publish', '--dry-run', '--access', 'public']
+    : ['publish', '--access', 'public']
+  const result = await $`npm ${args}`.cwd(dir).nothrow()
 
   if (result.exitCode !== 0) {
-    console.error(`  Failed: ${result.stderr.toString()}`);
-    return false;
+    console.error(`  Failed: ${result.stderr.toString()}`)
+    return false
   }
 
-  console.log(`  Published ${name}`);
-  return true;
+  console.log(`  Published ${name}`)
+  return true
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  const dryRun = args.includes("--dry-run");
+  const args = process.argv.slice(2)
+  const dryRun = args.includes('--dry-run')
 
   if (dryRun) {
-    console.log("DRY RUN - No packages will be published\n");
+    console.log('DRY RUN - No packages will be published\n')
   }
 
   // First, build all platforms
-  console.log("Building all platforms...\n");
-  const buildResult = await $`bun scripts/build.ts`.cwd(ROOT).nothrow();
+  console.log('Building all platforms...\n')
+  const buildResult = await $`bun scripts/build.ts`.cwd(ROOT).nothrow()
   if (buildResult.exitCode !== 0) {
-    console.error("Build failed, aborting publish");
-    process.exit(1);
+    console.error('Build failed, aborting publish')
+    process.exit(1)
   }
 
-  console.log("\nPublishing platform packages...\n");
+  console.log('\nPublishing platform packages...\n')
 
   // Publish platform packages first
   for (const platform of PLATFORMS) {
-    const pkgDir = path.join(NPM_DIR, platform);
-    const binPath = path.join(pkgDir, platform.includes("win32") ? "stackboi.exe" : "stackboi");
+    const pkgDir = path.join(NPM_DIR, platform)
+    const binPath = path.join(pkgDir, platform.includes('win32') ? 'stackboi.exe' : 'stackboi')
 
     if (!fs.existsSync(binPath)) {
-      console.log(`  Skipping ${platform} (no binary found)`);
-      continue;
+      console.log(`  Skipping ${platform} (no binary found)`)
+      continue
     }
 
-    const success = await publishPackage(pkgDir, `@stackboi/${platform}`, dryRun);
+    const success = await publishPackage(pkgDir, `@stackboi/${platform}`, dryRun)
     if (!success && !dryRun) {
-      console.error("Aborting due to publish failure");
-      process.exit(1);
+      console.error('Aborting due to publish failure')
+      process.exit(1)
     }
   }
 
-  console.log("\nPublishing main package...\n");
+  console.log('\nPublishing main package...\n')
 
   // Publish main package
-  const success = await publishPackage(ROOT, "stackboi", dryRun);
+  const success = await publishPackage(ROOT, 'stackboi', dryRun)
   if (!success) {
-    process.exit(1);
+    process.exit(1)
   }
 
-  console.log("\nPublish complete!");
+  console.log('\nPublish complete!')
 }
 
-main();
+main()

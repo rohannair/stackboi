@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { render, Box, Text, useInput, useApp } from "ink";
-import { $ } from "bun";
+import React, { useState, useEffect } from 'react'
+import { render, Box, Text, useInput, useApp } from 'ink'
+import { $ } from 'bun'
 import {
   type StackboiConfig,
   type Stack,
@@ -10,394 +10,380 @@ import {
   checkGhAuth,
   getRerereStats,
   DEFAULT_POLL_INTERVAL_MS,
-} from "./init";
-import { loadConfig, saveConfig, getCurrentBranch, findStackByBranch } from "./new";
+} from './init'
+import { loadConfig, saveConfig, getCurrentBranch } from './new'
 import {
   createPR,
-  type CreatePRResult,
   getParentBranch,
   getStackPosition,
   generateTitleFromBranchName,
   updatePRMetadataAfterSync,
-} from "./createpr";
-import { showCopyrightNotice } from "./license";
+} from './createpr'
+import { showCopyrightNotice } from './license'
 
 // Sync operation state
 export type SyncState =
-  | "idle"
-  | "fetching"
-  | "rebasing"
-  | "checking-conflicts"
-  | "awaiting-user"
-  | "updating-prs"
-  | "success"
-  | "error";
+  | 'idle'
+  | 'fetching'
+  | 'rebasing'
+  | 'checking-conflicts'
+  | 'awaiting-user'
+  | 'updating-prs'
+  | 'success'
+  | 'error'
 
 // Push operation state
-export type PushState =
-  | "idle"
-  | "pushing"
-  | "success"
-  | "error";
+export type PushState = 'idle' | 'pushing' | 'success' | 'error'
 
 // Create PR operation state
-export type CreatePRState =
-  | "idle"
-  | "confirm"
-  | "creating"
-  | "success"
-  | "error";
+export type CreatePRState = 'idle' | 'confirm' | 'creating' | 'success' | 'error'
 
 export interface BranchPushResult {
-  branchName: string;
-  success: boolean;
-  error?: string;
-  setUpstream: boolean;
+  branchName: string
+  success: boolean
+  error?: string
+  setUpstream: boolean
 }
 
 export interface PushProgress {
-  state: PushState;
-  message: string;
-  stackName: string;
-  branches: string[];
-  currentBranch: string | null;
-  results: BranchPushResult[];
+  state: PushState
+  message: string
+  stackName: string
+  branches: string[]
+  currentBranch: string | null
+  results: BranchPushResult[]
 }
 
 export interface CreatePRProgress {
-  state: CreatePRState;
-  branchName: string;
-  parentBranch: string;
-  suggestedTitle: string;
-  stackPosition: string;
-  message: string;
-  prNumber?: number;
-  prUrl?: string;
-  error?: string;
+  state: CreatePRState
+  branchName: string
+  parentBranch: string
+  suggestedTitle: string
+  stackPosition: string
+  message: string
+  prNumber?: number
+  prUrl?: string
+  error?: string
 }
 
 export interface SyncProgress {
-  state: SyncState;
-  message: string;
-  mergedBranch: string;
-  childBranches: string[];
-  currentBranch: string | null;
-  error: string | null;
-  conflictedFiles: string[];
-  rerereResolved: string[];
+  state: SyncState
+  message: string
+  mergedBranch: string
+  childBranches: string[]
+  currentBranch: string | null
+  error: string | null
+  conflictedFiles: string[]
+  rerereResolved: string[]
 }
 
 // Sync status for a branch
 export type SyncStatus =
-  | "up-to-date"
-  | "needs-push"
-  | "needs-rebase"
-  | "conflicts"
-  | "pending-sync"
-  | "unknown";
+  | 'up-to-date'
+  | 'needs-push'
+  | 'needs-rebase'
+  | 'conflicts'
+  | 'pending-sync'
+  | 'unknown'
 
 // PR status from GitHub
-export type PRStatus =
-  | "open"
-  | "merged"
-  | "closed"
-  | "draft"
-  | "none";
+export type PRStatus = 'open' | 'merged' | 'closed' | 'draft' | 'none'
 
 export interface BranchInfo {
-  name: string;
-  prNumber: number | null;
-  prStatus: PRStatus;
-  syncStatus: SyncStatus;
+  name: string
+  prNumber: number | null
+  prStatus: PRStatus
+  syncStatus: SyncStatus
 }
 
 export interface StackWithInfo {
-  stack: Stack;
-  branches: BranchInfo[];
+  stack: Stack
+  branches: BranchInfo[]
 }
 
 // Notification for a merged PR
 export interface MergedPRNotification {
-  branchName: string;
-  prNumber: number;
-  childBranches: string[];
-  stackName: string;
+  branchName: string
+  prNumber: number
+  childBranches: string[]
+  stackName: string
 }
 
 // Box-drawing characters for tree
 const TREE_CHARS = {
-  vertical: "│",
-  branch: "├",
-  lastBranch: "└",
-  horizontal: "─",
-} as const;
+  vertical: '│',
+  branch: '├',
+  lastBranch: '└',
+  horizontal: '─',
+} as const
 
 async function getBranchSyncStatus(branchName: string): Promise<SyncStatus> {
   // Check if remote tracking branch exists
-  const remoteRef = await $`git rev-parse --verify origin/${branchName}`
-    .quiet()
-    .nothrow();
+  const remoteRef = await $`git rev-parse --verify origin/${branchName}`.quiet().nothrow()
 
   if (remoteRef.exitCode !== 0) {
     // No remote branch - needs push
-    return "needs-push";
+    return 'needs-push'
   }
 
   // Check for uncommitted changes
-  const status = await $`git status --porcelain`.quiet();
-  const currentBranch = await getCurrentBranch();
-  const hasLocalChanges =
-    currentBranch === branchName && status.stdout.toString().trim().length > 0;
+  const status = await $`git status --porcelain`.quiet()
+  const currentBranch = await getCurrentBranch()
+  const hasLocalChanges = currentBranch === branchName && status.stdout.toString().trim().length > 0
 
   if (hasLocalChanges) {
-    return "needs-push";
+    return 'needs-push'
   }
 
   // Compare local and remote
-  const localRef = await $`git rev-parse ${branchName}`.quiet();
-  const localHash = localRef.stdout.toString().trim();
-  const remoteHash = remoteRef.stdout.toString().trim();
+  const localRef = await $`git rev-parse ${branchName}`.quiet()
+  const localHash = localRef.stdout.toString().trim()
+  const remoteHash = remoteRef.stdout.toString().trim()
 
   if (localHash === remoteHash) {
-    return "up-to-date";
+    return 'up-to-date'
   }
 
   // Check if local is ahead, behind, or diverged
-  const mergeBase =
-    await $`git merge-base ${branchName} origin/${branchName}`.quiet();
-  const base = mergeBase.stdout.toString().trim();
+  const mergeBase = await $`git merge-base ${branchName} origin/${branchName}`.quiet()
+  const base = mergeBase.stdout.toString().trim()
 
   if (base === remoteHash) {
     // Local is ahead of remote
-    return "needs-push";
+    return 'needs-push'
   } else if (base === localHash) {
     // Local is behind remote
-    return "needs-rebase";
+    return 'needs-rebase'
   } else {
     // Branches have diverged - might have conflicts
-    return "conflicts";
+    return 'conflicts'
   }
 }
 
 async function getBranchPRInfo(
   branchName: string,
-  ghAuthenticated: boolean
+  ghAuthenticated: boolean,
 ): Promise<{ prNumber: number | null; prStatus: PRStatus }> {
   if (!ghAuthenticated) {
-    return { prNumber: null, prStatus: "none" };
+    return { prNumber: null, prStatus: 'none' }
   }
 
-  const result =
-    await $`gh pr view ${branchName} --json number,state,isDraft`.nothrow().quiet();
+  const result = await $`gh pr view ${branchName} --json number,state,isDraft`.nothrow().quiet()
 
   if (result.exitCode !== 0) {
-    return { prNumber: null, prStatus: "none" };
+    return { prNumber: null, prStatus: 'none' }
   }
 
   try {
-    const pr = JSON.parse(result.stdout.toString());
-    let prStatus: PRStatus = "none";
+    const pr = JSON.parse(result.stdout.toString())
+    let prStatus: PRStatus = 'none'
 
     if (pr.isDraft) {
-      prStatus = "draft";
-    } else if (pr.state === "OPEN") {
-      prStatus = "open";
-    } else if (pr.state === "MERGED") {
-      prStatus = "merged";
-    } else if (pr.state === "CLOSED") {
-      prStatus = "closed";
+      prStatus = 'draft'
+    } else if (pr.state === 'OPEN') {
+      prStatus = 'open'
+    } else if (pr.state === 'MERGED') {
+      prStatus = 'merged'
+    } else if (pr.state === 'CLOSED') {
+      prStatus = 'closed'
     }
 
-    return { prNumber: pr.number, prStatus };
+    return { prNumber: pr.number, prStatus }
   } catch {
-    return { prNumber: null, prStatus: "none" };
+    return { prNumber: null, prStatus: 'none' }
   }
 }
 
 async function getStacksWithInfo(
   config: StackboiConfig,
-  ghAuthenticated: boolean
+  ghAuthenticated: boolean,
 ): Promise<StackWithInfo[]> {
-  const result: StackWithInfo[] = [];
+  const result: StackWithInfo[] = []
 
   for (const stack of config.stacks) {
-    const branches: BranchInfo[] = [];
+    const branches: BranchInfo[] = []
 
     for (const branchName of stack.branches) {
       const [syncStatus, prInfo] = await Promise.all([
         getBranchSyncStatus(branchName),
         getBranchPRInfo(branchName, ghAuthenticated),
-      ]);
+      ])
 
       branches.push({
         name: branchName,
         prNumber: prInfo.prNumber,
         prStatus: prInfo.prStatus,
         syncStatus,
-      });
+      })
     }
 
-    result.push({ stack, branches });
+    result.push({ stack, branches })
   }
 
-  return result;
+  return result
 }
 
 // Fetch only PR status for all branches (used for polling)
 async function fetchAllPRStatuses(
   stacks: StackWithInfo[],
-  ghAuthenticated: boolean
+  ghAuthenticated: boolean,
 ): Promise<Map<string, { prNumber: number | null; prStatus: PRStatus }>> {
-  const result = new Map<string, { prNumber: number | null; prStatus: PRStatus }>();
+  const result = new Map<string, { prNumber: number | null; prStatus: PRStatus }>()
 
   // Collect all branch names
-  const allBranches: string[] = [];
+  const allBranches: string[] = []
   for (const stackInfo of stacks) {
     for (const branch of stackInfo.branches) {
-      allBranches.push(branch.name);
+      allBranches.push(branch.name)
     }
   }
 
   // Fetch PR info for all branches in parallel
   const prInfoPromises = allBranches.map(async (branchName) => {
-    const info = await getBranchPRInfo(branchName, ghAuthenticated);
-    return { branchName, info };
-  });
+    const info = await getBranchPRInfo(branchName, ghAuthenticated)
+    return { branchName, info }
+  })
 
-  const prInfoResults = await Promise.all(prInfoPromises);
+  const prInfoResults = await Promise.all(prInfoPromises)
   for (const { branchName, info } of prInfoResults) {
-    result.set(branchName, info);
+    result.set(branchName, info)
   }
 
-  return result;
+  return result
 }
 
 // Apply PR status updates to stacks and detect newly merged PRs
 function applyPRStatusUpdates(
   stacks: StackWithInfo[],
-  prStatuses: Map<string, { prNumber: number | null; prStatus: PRStatus }>
+  prStatuses: Map<string, { prNumber: number | null; prStatus: PRStatus }>,
 ): { updated: StackWithInfo[]; hasChanges: boolean; newlyMerged: MergedPRNotification[] } {
-  let hasChanges = false;
-  const newlyMerged: MergedPRNotification[] = [];
+  let hasChanges = false
+  const newlyMerged: MergedPRNotification[] = []
 
   const updated = stacks.map((stackInfo) => ({
     ...stackInfo,
     branches: stackInfo.branches.map((branch, branchIndex) => {
-      const newStatus = prStatuses.get(branch.name);
-      if (newStatus && (newStatus.prNumber !== branch.prNumber || newStatus.prStatus !== branch.prStatus)) {
-        hasChanges = true;
+      const newStatus = prStatuses.get(branch.name)
+      if (
+        newStatus &&
+        (newStatus.prNumber !== branch.prNumber || newStatus.prStatus !== branch.prStatus)
+      ) {
+        hasChanges = true
 
         // Detect newly merged PRs (was open/draft, now merged)
         if (
-          newStatus.prStatus === "merged" &&
-          (branch.prStatus === "open" || branch.prStatus === "draft") &&
+          newStatus.prStatus === 'merged' &&
+          (branch.prStatus === 'open' || branch.prStatus === 'draft') &&
           newStatus.prNumber !== null
         ) {
           // Find child branches (branches after this one in the stack)
-          const childBranches = stackInfo.branches
-            .slice(branchIndex + 1)
-            .map((b) => b.name);
+          const childBranches = stackInfo.branches.slice(branchIndex + 1).map((b) => b.name)
 
           newlyMerged.push({
             branchName: branch.name,
             prNumber: newStatus.prNumber,
             childBranches,
             stackName: stackInfo.stack.name,
-          });
+          })
         }
 
         return {
           ...branch,
           prNumber: newStatus.prNumber,
           prStatus: newStatus.prStatus,
-        };
+        }
       }
-      return branch;
+      return branch
     }),
-  }));
+  }))
 
-  return { updated, hasChanges, newlyMerged };
+  return { updated, hasChanges, newlyMerged }
 }
 
 // Check for unresolved conflicts (files with conflict markers)
 export async function getUnresolvedConflicts(): Promise<string[]> {
   // Use git diff to find files with unmerged status
-  const result = await $`git diff --name-only --diff-filter=U`.quiet().nothrow();
+  const result = await $`git diff --name-only --diff-filter=U`.quiet().nothrow()
   if (result.exitCode !== 0) {
-    return [];
+    return []
   }
-  const output = result.stdout.toString().trim();
-  return output ? output.split("\n") : [];
+  const output = result.stdout.toString().trim()
+  return output ? output.split('\n') : []
 }
 
 // Check if rerere has resolved any conflicts
 export async function getRerereResolvedFiles(): Promise<string[]> {
   // git rerere status shows files that rerere has recorded resolutions for
-  const result = await $`git rerere status`.quiet().nothrow();
+  const result = await $`git rerere status`.quiet().nothrow()
   if (result.exitCode !== 0) {
-    return [];
+    return []
   }
-  const output = result.stdout.toString().trim();
-  return output ? output.split("\n") : [];
+  const output = result.stdout.toString().trim()
+  return output ? output.split('\n') : []
 }
 
 // Get list of all conflicted files from the rebase
 export async function getAllConflictedFiles(): Promise<string[]> {
   // git status --porcelain shows UU for both-modified (conflicts)
-  const result = await $`git status --porcelain`.quiet().nothrow();
+  const result = await $`git status --porcelain`.quiet().nothrow()
   if (result.exitCode !== 0) {
-    return [];
+    return []
   }
-  const lines = result.stdout.toString().trim().split("\n");
-  const conflicted: string[] = [];
+  const lines = result.stdout.toString().trim().split('\n')
+  const conflicted: string[] = []
   for (const line of lines) {
     // UU = both modified (conflict), AA = both added, etc.
-    if (line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DU ") || line.startsWith("UD ")) {
-      conflicted.push(line.slice(3));
+    if (
+      line.startsWith('UU ') ||
+      line.startsWith('AA ') ||
+      line.startsWith('DU ') ||
+      line.startsWith('UD ')
+    ) {
+      conflicted.push(line.slice(3))
     }
   }
-  return conflicted;
+  return conflicted
 }
 
 // Check if we're currently in a rebase
 export async function isRebaseInProgress(): Promise<boolean> {
-  const result = await $`git rev-parse --git-dir`.quiet().nothrow();
-  if (result.exitCode !== 0) return false;
-  const gitDir = result.stdout.toString().trim();
+  const result = await $`git rev-parse --git-dir`.quiet().nothrow()
+  if (result.exitCode !== 0) return false
+  const gitDir = result.stdout.toString().trim()
 
   // Check for rebase-merge or rebase-apply directories
-  const rebaseMerge = await $`test -d ${gitDir}/rebase-merge`.quiet().nothrow();
-  const rebaseApply = await $`test -d ${gitDir}/rebase-apply`.quiet().nothrow();
+  const rebaseMerge = await $`test -d ${gitDir}/rebase-merge`.quiet().nothrow()
+  const rebaseApply = await $`test -d ${gitDir}/rebase-apply`.quiet().nothrow()
 
-  return rebaseMerge.exitCode === 0 || rebaseApply.exitCode === 0;
+  return rebaseMerge.exitCode === 0 || rebaseApply.exitCode === 0
 }
 
 // Perform sync operation: fetch, rebase with --update-refs, and update metadata
 export async function performSync(
   notification: MergedPRNotification,
   onProgress: (progress: SyncProgress) => void,
-  ghAuthenticated: boolean = false
+  ghAuthenticated: boolean = false,
 ): Promise<{ success: boolean; error?: string }> {
-  const { branchName: mergedBranch, childBranches, stackName } = notification;
+  const { branchName: mergedBranch, childBranches, stackName } = notification
 
   // Initial progress
   onProgress({
-    state: "fetching",
-    message: "Fetching latest from remote...",
+    state: 'fetching',
+    message: 'Fetching latest from remote...',
     mergedBranch,
     childBranches,
     currentBranch: null,
     error: null,
     conflictedFiles: [],
     rerereResolved: [],
-  });
+  })
 
   // Step 1: Fetch latest from remote
-  const fetchResult = await $`git fetch origin`.quiet().nothrow();
+  const fetchResult = await $`git fetch origin`.quiet().nothrow()
   if (fetchResult.exitCode !== 0) {
-    const error = `Failed to fetch from remote: ${fetchResult.stderr.toString()}`;
+    const error = `Failed to fetch from remote: ${fetchResult.stderr.toString()}`
     onProgress({
-      state: "error",
+      state: 'error',
       message: error,
       mergedBranch,
       childBranches,
@@ -405,20 +391,20 @@ export async function performSync(
       error,
       conflictedFiles: [],
       rerereResolved: [],
-    });
-    return { success: false, error };
+    })
+    return { success: false, error }
   }
 
   // Step 2: Get the git root and load config
-  const gitRoot = await getGitRoot();
-  const config = await loadConfig(gitRoot);
+  const gitRoot = await getGitRoot()
+  const config = await loadConfig(gitRoot)
 
   // Find the stack containing the merged branch
-  const stackInfo = config.stacks.find((s) => s.name === stackName);
+  const stackInfo = config.stacks.find((s) => s.name === stackName)
   if (!stackInfo) {
-    const error = `Stack '${stackName}' not found in config`;
+    const error = `Stack '${stackName}' not found in config`
     onProgress({
-      state: "error",
+      state: 'error',
       message: error,
       mergedBranch,
       childBranches,
@@ -426,20 +412,20 @@ export async function performSync(
       error,
       conflictedFiles: [],
       rerereResolved: [],
-    });
-    return { success: false, error };
+    })
+    return { success: false, error }
   }
 
   // Step 3: If there are child branches, rebase them with --update-refs
   if (childBranches.length > 0) {
     // Get the first child branch (the one directly after the merged branch)
-    const firstChildBranch = childBranches[0]!;
+    const firstChildBranch = childBranches[0]!
 
     // The tip branch is the last branch in the child list (furthest from base)
-    const tipBranch = childBranches[childBranches.length - 1]!;
+    const tipBranch = childBranches[childBranches.length - 1]!
 
     onProgress({
-      state: "rebasing",
+      state: 'rebasing',
       message: `Rebasing child branches onto ${stackInfo.baseBranch}...`,
       mergedBranch,
       childBranches,
@@ -447,18 +433,18 @@ export async function performSync(
       error: null,
       conflictedFiles: [],
       rerereResolved: [],
-    });
+    })
 
     // Save current branch to return to later
-    const currentBranchResult = await $`git branch --show-current`.quiet();
-    const originalBranch = currentBranchResult.stdout.toString().trim();
+    const currentBranchResult = await $`git branch --show-current`.quiet()
+    const originalBranch = currentBranchResult.stdout.toString().trim()
 
     // Checkout the tip branch for rebasing
-    const checkoutResult = await $`git checkout ${tipBranch}`.quiet().nothrow();
+    const checkoutResult = await $`git checkout ${tipBranch}`.quiet().nothrow()
     if (checkoutResult.exitCode !== 0) {
-      const error = `Failed to checkout ${tipBranch}: ${checkoutResult.stderr.toString()}`;
+      const error = `Failed to checkout ${tipBranch}: ${checkoutResult.stderr.toString()}`
       onProgress({
-        state: "error",
+        state: 'error',
         message: error,
         mergedBranch,
         childBranches,
@@ -466,44 +452,45 @@ export async function performSync(
         error,
         conflictedFiles: [],
         rerereResolved: [],
-      });
-      return { success: false, error };
+      })
+      return { success: false, error }
     }
 
     // Perform rebase with --update-refs
     // This rebases onto the base branch (since merged branch is now part of base)
     // --update-refs automatically updates all intermediate branch pointers
-    const rebaseResult =
-      await $`git rebase --update-refs origin/${stackInfo.baseBranch}`.quiet().nothrow();
+    const rebaseResult = await $`git rebase --update-refs origin/${stackInfo.baseBranch}`
+      .quiet()
+      .nothrow()
 
     if (rebaseResult.exitCode !== 0) {
       // Check if it's a conflict
-      const stderr = rebaseResult.stderr.toString();
-      const isConflict = stderr.includes("CONFLICT") || stderr.includes("could not apply");
+      const stderr = rebaseResult.stderr.toString()
+      const isConflict = stderr.includes('CONFLICT') || stderr.includes('could not apply')
 
       if (isConflict) {
         // Check if rerere has automatically resolved any conflicts
         onProgress({
-          state: "checking-conflicts",
-          message: "Checking if rerere resolved conflicts...",
+          state: 'checking-conflicts',
+          message: 'Checking if rerere resolved conflicts...',
           mergedBranch,
           childBranches,
           currentBranch: tipBranch,
           error: null,
           conflictedFiles: [],
           rerereResolved: [],
-        });
+        })
 
         // Get list of files rerere has resolved and files still in conflict
         const [rerereResolved, unresolvedConflicts] = await Promise.all([
           getRerereResolvedFiles(),
           getUnresolvedConflicts(),
-        ]);
+        ])
 
         if (unresolvedConflicts.length === 0 && rerereResolved.length > 0) {
           // Rerere resolved ALL conflicts - stage the resolved files and continue rebase
           onProgress({
-            state: "rebasing",
+            state: 'rebasing',
             message: `Rerere resolved ${rerereResolved.length} conflict(s), continuing rebase...`,
             mergedBranch,
             childBranches,
@@ -511,75 +498,90 @@ export async function performSync(
             error: null,
             conflictedFiles: [],
             rerereResolved,
-          });
+          })
 
           // Stage all resolved files and continue rebase
           for (const file of rerereResolved) {
-            await $`git add ${file}`.quiet().nothrow();
+            await $`git add ${file}`.quiet().nothrow()
           }
 
-          const continueResult = await $`git rebase --continue`.quiet().nothrow();
+          const continueResult = await $`git rebase --continue`.quiet().nothrow()
           if (continueResult.exitCode !== 0) {
             // Check for more conflicts in subsequent commits
             const [moreRerereResolved, moreUnresolved] = await Promise.all([
               getRerereResolvedFiles(),
               getUnresolvedConflicts(),
-            ]);
+            ])
 
             if (moreUnresolved.length === 0 && moreRerereResolved.length > 0) {
               // Keep resolving with rerere until done
-              let keepGoing = true;
+              let keepGoing = true
               while (keepGoing) {
                 for (const file of moreRerereResolved) {
-                  await $`git add ${file}`.quiet().nothrow();
+                  await $`git add ${file}`.quiet().nothrow()
                 }
-                const nextResult = await $`git rebase --continue`.quiet().nothrow();
+                const nextResult = await $`git rebase --continue`.quiet().nothrow()
                 if (nextResult.exitCode === 0) {
-                  keepGoing = false;
+                  keepGoing = false
                 } else {
                   const [nextRerere, nextUnresolved] = await Promise.all([
                     getRerereResolvedFiles(),
                     getUnresolvedConflicts(),
-                  ]);
+                  ])
                   if (nextUnresolved.length > 0 || nextRerere.length === 0) {
                     // Can't continue automatically, show conflicts to user
-                    const allConflicts = await getAllConflictedFiles();
+                    const allConflicts = await getAllConflictedFiles()
                     return {
                       success: false,
-                      error: "unresolved-conflicts",
+                      error: 'unresolved-conflicts',
                       conflictedFiles: allConflicts,
                       rerereResolved: rerereResolved,
-                    } as { success: boolean; error?: string; conflictedFiles?: string[]; rerereResolved?: string[] };
+                    } as {
+                      success: boolean
+                      error?: string
+                      conflictedFiles?: string[]
+                      rerereResolved?: string[]
+                    }
                   }
                 }
               }
             } else if (moreUnresolved.length > 0) {
               // There are still unresolved conflicts
-              const allConflicts = await getAllConflictedFiles();
+              const allConflicts = await getAllConflictedFiles()
               return {
                 success: false,
-                error: "unresolved-conflicts",
+                error: 'unresolved-conflicts',
                 conflictedFiles: allConflicts,
                 rerereResolved: rerereResolved,
-              } as { success: boolean; error?: string; conflictedFiles?: string[]; rerereResolved?: string[] };
+              } as {
+                success: boolean
+                error?: string
+                conflictedFiles?: string[]
+                rerereResolved?: string[]
+              }
             }
           }
           // Rebase continued successfully after rerere resolution
         } else if (unresolvedConflicts.length > 0) {
           // There are unresolved conflicts that rerere couldn't handle
-          const allConflicts = await getAllConflictedFiles();
+          const allConflicts = await getAllConflictedFiles()
           return {
             success: false,
-            error: "unresolved-conflicts",
+            error: 'unresolved-conflicts',
             conflictedFiles: allConflicts,
             rerereResolved: rerereResolved,
-          } as { success: boolean; error?: string; conflictedFiles?: string[]; rerereResolved?: string[] };
+          } as {
+            success: boolean
+            error?: string
+            conflictedFiles?: string[]
+            rerereResolved?: string[]
+          }
         } else {
           // No rerere resolutions and conflicts detected - abort and report
-          await $`git rebase --abort`.quiet().nothrow();
-          const error = "Rebase failed due to conflicts. Please resolve manually.";
+          await $`git rebase --abort`.quiet().nothrow()
+          const error = 'Rebase failed due to conflicts. Please resolve manually.'
           onProgress({
-            state: "error",
+            state: 'error',
             message: error,
             mergedBranch,
             childBranches,
@@ -587,14 +589,14 @@ export async function performSync(
             error,
             conflictedFiles: [],
             rerereResolved: [],
-          });
-          await $`git checkout ${originalBranch}`.quiet().nothrow();
-          return { success: false, error };
+          })
+          await $`git checkout ${originalBranch}`.quiet().nothrow()
+          return { success: false, error }
         }
       } else {
-        const error = `Rebase failed: ${stderr}`;
+        const error = `Rebase failed: ${stderr}`
         onProgress({
-          state: "error",
+          state: 'error',
           message: error,
           mergedBranch,
           childBranches,
@@ -602,119 +604,113 @@ export async function performSync(
           error,
           conflictedFiles: [],
           rerereResolved: [],
-        });
+        })
         // Try to abort and return to original branch
-        await $`git rebase --abort`.quiet().nothrow();
-        await $`git checkout ${originalBranch}`.quiet().nothrow();
-        return { success: false, error };
+        await $`git rebase --abort`.quiet().nothrow()
+        await $`git checkout ${originalBranch}`.quiet().nothrow()
+        return { success: false, error }
       }
     }
 
     // Return to original branch if it still exists
     if (originalBranch && originalBranch !== mergedBranch) {
-      await $`git checkout ${originalBranch}`.quiet().nothrow();
+      await $`git checkout ${originalBranch}`.quiet().nothrow()
     } else {
       // If we were on the merged branch, switch to the first child
-      await $`git checkout ${firstChildBranch}`.quiet().nothrow();
+      await $`git checkout ${firstChildBranch}`.quiet().nothrow()
     }
   }
 
   // Step 4: Remove merged branch from stack metadata
-  const mergedBranchIndex = stackInfo.branches.indexOf(mergedBranch);
+  const mergedBranchIndex = stackInfo.branches.indexOf(mergedBranch)
   if (mergedBranchIndex !== -1) {
-    stackInfo.branches.splice(mergedBranchIndex, 1);
-    await saveConfig(gitRoot, config);
+    stackInfo.branches.splice(mergedBranchIndex, 1)
+    await saveConfig(gitRoot, config)
   }
 
   // Step 5: Delete the local merged branch (optional but good cleanup)
-  await $`git branch -d ${mergedBranch}`.quiet().nothrow();
+  await $`git branch -d ${mergedBranch}`.quiet().nothrow()
 
   // Step 6: Update PR metadata for affected branches (base branch, description, labels)
   if (ghAuthenticated && childBranches.length > 0) {
     onProgress({
-      state: "updating-prs",
-      message: "Updating PR metadata...",
+      state: 'updating-prs',
+      message: 'Updating PR metadata...',
       mergedBranch,
       childBranches,
       currentBranch: null,
       error: null,
       conflictedFiles: [],
       rerereResolved: [],
-    });
+    })
 
     // Reload config to get updated stack (with merged branch removed)
-    const updatedConfig = await loadConfig(gitRoot);
-    const updatedStack = updatedConfig.stacks.find((s) => s.name === stackName);
+    const updatedConfig = await loadConfig(gitRoot)
+    const updatedStack = updatedConfig.stacks.find((s) => s.name === stackName)
     if (updatedStack) {
-      await updatePRMetadataAfterSync(updatedStack, childBranches, ghAuthenticated);
+      await updatePRMetadataAfterSync(updatedStack, childBranches, ghAuthenticated)
     }
   }
 
   onProgress({
-    state: "success",
-    message: "Sync completed successfully!",
+    state: 'success',
+    message: 'Sync completed successfully!',
     mergedBranch,
     childBranches,
     currentBranch: null,
     error: null,
     conflictedFiles: [],
     rerereResolved: [],
-  });
+  })
 
-  return { success: true };
+  return { success: true }
 }
 
 // Check if a branch has an upstream tracking branch
 async function hasUpstream(branchName: string): Promise<boolean> {
-  const result = await $`git rev-parse --verify origin/${branchName}`
-    .quiet()
-    .nothrow();
-  return result.exitCode === 0;
+  const result = await $`git rev-parse --verify origin/${branchName}`.quiet().nothrow()
+  return result.exitCode === 0
 }
 
 // Push all branches in a stack
 export async function pushAllBranches(
   stack: Stack,
-  onProgress: (progress: PushProgress) => void
+  onProgress: (progress: PushProgress) => void,
 ): Promise<{ success: boolean; results: BranchPushResult[] }> {
-  const { name: stackName, branches } = stack;
-  const results: BranchPushResult[] = [];
+  const { name: stackName, branches } = stack
+  const results: BranchPushResult[] = []
 
   // Initial progress
   onProgress({
-    state: "pushing",
-    message: "Starting push...",
+    state: 'pushing',
+    message: 'Starting push...',
     stackName,
     branches,
     currentBranch: null,
     results: [],
-  });
+  })
 
   // Push each branch in order
   for (const branchName of branches) {
     onProgress({
-      state: "pushing",
+      state: 'pushing',
       message: `Pushing ${branchName}...`,
       stackName,
       branches,
       currentBranch: branchName,
       results: [...results],
-    });
+    })
 
     // Check if upstream exists
-    const hasUpstreamBranch = await hasUpstream(branchName);
+    const hasUpstreamBranch = await hasUpstream(branchName)
 
-    let pushResult;
+    let pushResult
     if (hasUpstreamBranch) {
       // Push with --force-with-lease for safety
-      pushResult = await $`git push --force-with-lease origin ${branchName}`
-        .quiet()
-        .nothrow();
+      pushResult = await $`git push --force-with-lease origin ${branchName}`.quiet().nothrow()
     } else {
       // Set upstream for new branches
-      pushResult = await $`git push --set-upstream origin ${branchName}`
-        .quiet()
-        .nothrow();
+      pushResult = await $`git push --set-upstream origin ${branchName}`.quiet().nothrow()
     }
 
     if (pushResult.exitCode === 0) {
@@ -722,65 +718,70 @@ export async function pushAllBranches(
         branchName,
         success: true,
         setUpstream: !hasUpstreamBranch,
-      });
+      })
     } else {
-      const errorMsg = pushResult.stderr.toString().trim();
+      const errorMsg = pushResult.stderr.toString().trim()
       results.push({
         branchName,
         success: false,
-        error: errorMsg || "Push failed",
+        error: errorMsg || 'Push failed',
         setUpstream: !hasUpstreamBranch,
-      });
+      })
     }
   }
 
   // Calculate overall success
-  const allSucceeded = results.every((r) => r.success);
-  const successCount = results.filter((r) => r.success).length;
-  const failCount = results.filter((r) => !r.success).length;
+  const allSucceeded = results.every((r) => r.success)
+  const successCount = results.filter((r) => r.success).length
+  const failCount = results.filter((r) => !r.success).length
 
   const finalMessage = allSucceeded
-    ? `Successfully pushed all ${results.length} branch${results.length !== 1 ? "es" : ""}`
-    : `Pushed ${successCount} branch${successCount !== 1 ? "es" : ""}, ${failCount} failed`;
+    ? `Successfully pushed all ${results.length} branch${results.length !== 1 ? 'es' : ''}`
+    : `Pushed ${successCount} branch${successCount !== 1 ? 'es' : ''}, ${failCount} failed`
 
   onProgress({
-    state: allSucceeded ? "success" : "error",
+    state: allSucceeded ? 'success' : 'error',
     message: finalMessage,
     stackName,
     branches,
     currentBranch: null,
     results,
-  });
+  })
 
-  return { success: allSucceeded, results };
+  return { success: allSucceeded, results }
 }
 
 // Sync progress overlay component
 function SyncProgressOverlay({ progress }: { progress: SyncProgress }) {
   const stateIcons: Record<SyncState, string> = {
-    idle: "",
-    fetching: "📥",
-    rebasing: "🔄",
-    "checking-conflicts": "🔍",
-    "awaiting-user": "⏸️",
-    "updating-prs": "📝",
-    success: "✅",
-    error: "❌",
-  };
+    idle: '',
+    fetching: '📥',
+    rebasing: '🔄',
+    'checking-conflicts': '🔍',
+    'awaiting-user': '⏸️',
+    'updating-prs': '📝',
+    success: '✅',
+    error: '❌',
+  }
 
   const stateColors: Record<SyncState, string> = {
-    idle: "gray",
-    fetching: "cyan",
-    rebasing: "yellow",
-    "checking-conflicts": "cyan",
-    "awaiting-user": "yellow",
-    "updating-prs": "cyan",
-    success: "green",
-    error: "red",
-  };
+    idle: 'gray',
+    fetching: 'cyan',
+    rebasing: 'yellow',
+    'checking-conflicts': 'cyan',
+    'awaiting-user': 'yellow',
+    'updating-prs': 'cyan',
+    success: 'green',
+    error: 'red',
+  }
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={stateColors[progress.state]} padding={1}>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={stateColors[progress.state]}
+      padding={1}
+    >
       <Box marginBottom={1}>
         <Text bold color={stateColors[progress.state]}>
           {stateIcons[progress.state]} Syncing Stack
@@ -791,12 +792,14 @@ function SyncProgressOverlay({ progress }: { progress: SyncProgress }) {
         <Text>{progress.message}</Text>
       </Box>
 
-      {progress.state === "rebasing" && progress.childBranches.length > 0 && (
+      {progress.state === 'rebasing' && progress.childBranches.length > 0 && (
         <Box flexDirection="column" marginBottom={1}>
           <Text color="gray">Rebasing branches:</Text>
           {progress.childBranches.map((branch) => (
-            <Text key={branch} color={branch === progress.currentBranch ? "yellow" : "gray"}>
-              {"  "}{branch === progress.currentBranch ? "→ " : "  "}{branch}
+            <Text key={branch} color={branch === progress.currentBranch ? 'yellow' : 'gray'}>
+              {'  '}
+              {branch === progress.currentBranch ? '→ ' : '  '}
+              {branch}
             </Text>
           ))}
         </Box>
@@ -807,13 +810,13 @@ function SyncProgressOverlay({ progress }: { progress: SyncProgress }) {
           <Text color="green">Rerere auto-resolved:</Text>
           {progress.rerereResolved.map((file) => (
             <Text key={file} color="green">
-              {"  "}✓ {file}
+              {'  '}✓ {file}
             </Text>
           ))}
         </Box>
       )}
 
-      {progress.state === "success" && (
+      {progress.state === 'success' && (
         <Box>
           <Text color="green">
             Removed <Text bold>{progress.mergedBranch}</Text> from stack.
@@ -821,39 +824,44 @@ function SyncProgressOverlay({ progress }: { progress: SyncProgress }) {
         </Box>
       )}
 
-      {progress.state === "error" && progress.error && (
+      {progress.state === 'error' && progress.error && (
         <Box marginTop={1}>
           <Text color="red">{progress.error}</Text>
         </Box>
       )}
 
-      {(progress.state === "success" || progress.state === "error") && (
+      {(progress.state === 'success' || progress.state === 'error') && (
         <Box marginTop={1}>
           <Text color="gray">Press any key to continue...</Text>
         </Box>
       )}
     </Box>
-  );
+  )
 }
 
 // Push progress overlay component
 function PushProgressOverlay({ progress }: { progress: PushProgress }) {
   const stateIcons: Record<PushState, string> = {
-    idle: "",
-    pushing: "⬆️",
-    success: "✅",
-    error: "⚠️",
-  };
+    idle: '',
+    pushing: '⬆️',
+    success: '✅',
+    error: '⚠️',
+  }
 
   const stateColors: Record<PushState, string> = {
-    idle: "gray",
-    pushing: "cyan",
-    success: "green",
-    error: "yellow",
-  };
+    idle: 'gray',
+    pushing: 'cyan',
+    success: 'green',
+    error: 'yellow',
+  }
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={stateColors[progress.state]} padding={1}>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={stateColors[progress.state]}
+      padding={1}
+    >
       <Box marginBottom={1}>
         <Text bold color={stateColors[progress.state]}>
           {stateIcons[progress.state]} Pushing Stack: {progress.stackName}
@@ -868,50 +876,56 @@ function PushProgressOverlay({ progress }: { progress: PushProgress }) {
         <Box flexDirection="column" marginBottom={1}>
           <Text color="gray">Branches:</Text>
           {progress.branches.map((branch) => {
-            const result = progress.results.find((r) => r.branchName === branch);
-            const isCurrent = branch === progress.currentBranch;
+            const result = progress.results.find((r) => r.branchName === branch)
+            const isCurrent = branch === progress.currentBranch
 
-            let statusIcon = "  ";
-            let color = "gray";
-            let suffix = "";
+            let statusIcon = '  '
+            let color = 'gray'
+            let suffix = ''
 
             if (result) {
               if (result.success) {
-                statusIcon = "✓ ";
-                color = "green";
+                statusIcon = '✓ '
+                color = 'green'
                 if (result.setUpstream) {
-                  suffix = " (set upstream)";
+                  suffix = ' (set upstream)'
                 }
               } else {
-                statusIcon = "✗ ";
-                color = "red";
+                statusIcon = '✗ '
+                color = 'red'
               }
             } else if (isCurrent) {
-              statusIcon = "→ ";
-              color = "yellow";
+              statusIcon = '→ '
+              color = 'yellow'
             }
 
             return (
               <Box key={branch} flexDirection="column">
                 <Text color={color}>
-                  {"  "}{statusIcon}{branch}{suffix}
+                  {'  '}
+                  {statusIcon}
+                  {branch}
+                  {suffix}
                 </Text>
                 {result && !result.success && result.error && (
-                  <Text color="red">{"      "}{result.error}</Text>
+                  <Text color="red">
+                    {'      '}
+                    {result.error}
+                  </Text>
                 )}
               </Box>
-            );
+            )
           })}
         </Box>
       )}
 
-      {(progress.state === "success" || progress.state === "error") && (
+      {(progress.state === 'success' || progress.state === 'error') && (
         <Box marginTop={1}>
           <Text color="gray">Press any key to continue...</Text>
         </Box>
       )}
     </Box>
-  );
+  )
 }
 
 // Push progress dismiss handler component
@@ -919,45 +933,50 @@ function PushProgressWithDismiss({
   progress,
   onDismiss,
 }: {
-  progress: PushProgress;
-  onDismiss: () => void;
+  progress: PushProgress
+  onDismiss: () => void
 }) {
   useInput(() => {
-    if (progress.state === "success" || progress.state === "error") {
-      onDismiss();
+    if (progress.state === 'success' || progress.state === 'error') {
+      onDismiss()
     }
-  });
+  })
 
-  return <PushProgressOverlay progress={progress} />;
+  return <PushProgressOverlay progress={progress} />
 }
 
 // Create PR confirmation/progress overlay component
 function CreatePROverlay({ progress }: { progress: CreatePRProgress }) {
   const stateColors: Record<CreatePRState, string> = {
-    idle: "gray",
-    confirm: "cyan",
-    creating: "yellow",
-    success: "green",
-    error: "red",
-  };
+    idle: 'gray',
+    confirm: 'cyan',
+    creating: 'yellow',
+    success: 'green',
+    error: 'red',
+  }
 
   const stateIcons: Record<CreatePRState, string> = {
-    idle: "",
-    confirm: "📝",
-    creating: "⏳",
-    success: "✅",
-    error: "❌",
-  };
+    idle: '',
+    confirm: '📝',
+    creating: '⏳',
+    success: '✅',
+    error: '❌',
+  }
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={stateColors[progress.state]} padding={1}>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={stateColors[progress.state]}
+      padding={1}
+    >
       <Box marginBottom={1}>
         <Text bold color={stateColors[progress.state]}>
           {stateIcons[progress.state]} Create Pull Request
         </Text>
       </Box>
 
-      {progress.state === "confirm" && (
+      {progress.state === 'confirm' && (
         <>
           <Box flexDirection="column" marginBottom={1}>
             <Box>
@@ -990,13 +1009,13 @@ function CreatePROverlay({ progress }: { progress: CreatePRProgress }) {
         </>
       )}
 
-      {progress.state === "creating" && (
+      {progress.state === 'creating' && (
         <Box>
           <Text color="yellow">{progress.message}</Text>
         </Box>
       )}
 
-      {progress.state === "success" && (
+      {progress.state === 'success' && (
         <>
           <Box marginBottom={1}>
             <Text color="green">{progress.message}</Text>
@@ -1011,7 +1030,7 @@ function CreatePROverlay({ progress }: { progress: CreatePRProgress }) {
         </>
       )}
 
-      {progress.state === "error" && (
+      {progress.state === 'error' && (
         <>
           <Box marginBottom={1}>
             <Text color="red">{progress.error}</Text>
@@ -1022,7 +1041,7 @@ function CreatePROverlay({ progress }: { progress: CreatePRProgress }) {
         </>
       )}
     </Box>
-  );
+  )
 }
 
 // Create PR with input handling
@@ -1033,63 +1052,59 @@ function CreatePRWithInput({
   onCancel,
   onDismiss,
 }: {
-  progress: CreatePRProgress;
-  onConfirm: () => void;
-  onDraft: () => void;
-  onCancel: () => void;
-  onDismiss: () => void;
+  progress: CreatePRProgress
+  onConfirm: () => void
+  onDraft: () => void
+  onCancel: () => void
+  onDismiss: () => void
 }) {
   useInput((input) => {
-    if (progress.state === "confirm") {
-      if (input.toLowerCase() === "y") {
-        onConfirm();
-      } else if (input.toLowerCase() === "d") {
-        onDraft();
-      } else if (input.toLowerCase() === "n") {
-        onCancel();
+    if (progress.state === 'confirm') {
+      if (input.toLowerCase() === 'y') {
+        onConfirm()
+      } else if (input.toLowerCase() === 'd') {
+        onDraft()
+      } else if (input.toLowerCase() === 'n') {
+        onCancel()
       }
-    } else if (progress.state === "success" || progress.state === "error") {
-      onDismiss();
+    } else if (progress.state === 'success' || progress.state === 'error') {
+      onDismiss()
     }
-  });
+  })
 
-  return <CreatePROverlay progress={progress} />;
+  return <CreatePROverlay progress={progress} />
 }
 
 // Status indicator component
 function StatusIndicator({ status }: { status: SyncStatus }) {
   const indicators: Record<SyncStatus, { symbol: string; color: string }> = {
-    "up-to-date": { symbol: "✓", color: "green" },
-    "needs-push": { symbol: "↑", color: "yellow" },
-    "needs-rebase": { symbol: "↓", color: "yellow" },
-    conflicts: { symbol: "✗", color: "red" },
-    "pending-sync": { symbol: "⟲", color: "cyan" },
-    unknown: { symbol: "?", color: "gray" },
-  };
+    'up-to-date': { symbol: '✓', color: 'green' },
+    'needs-push': { symbol: '↑', color: 'yellow' },
+    'needs-rebase': { symbol: '↓', color: 'yellow' },
+    conflicts: { symbol: '✗', color: 'red' },
+    'pending-sync': { symbol: '⟲', color: 'cyan' },
+    unknown: { symbol: '?', color: 'gray' },
+  }
 
-  const { symbol, color } = indicators[status];
-  return <Text color={color}>{symbol}</Text>;
+  const { symbol, color } = indicators[status]
+  return <Text color={color}>{symbol}</Text>
 }
 
 // PR badge component
 function PRBadge({ prNumber, prStatus }: { prNumber: number | null; prStatus: PRStatus }) {
   if (prNumber === null) {
-    return <Text color="gray">[no PR]</Text>;
+    return <Text color="gray">[no PR]</Text>
   }
 
   const colors: Record<PRStatus, string> = {
-    open: "green",
-    merged: "magenta",
-    closed: "red",
-    draft: "gray",
-    none: "gray",
-  };
+    open: 'green',
+    merged: 'magenta',
+    closed: 'red',
+    draft: 'gray',
+    none: 'gray',
+  }
 
-  return (
-    <Text color={colors[prStatus]}>
-      [#{prNumber}]
-    </Text>
-  );
+  return <Text color={colors[prStatus]}>[#{prNumber}]</Text>
 }
 
 // Branch node component
@@ -1099,20 +1114,20 @@ function BranchNode({
   isSelected,
   isCurrent,
 }: {
-  branch: BranchInfo;
-  isLast: boolean;
-  isSelected: boolean;
-  isCurrent: boolean;
+  branch: BranchInfo
+  isLast: boolean
+  isSelected: boolean
+  isCurrent: boolean
 }) {
   const prefix = isLast
     ? `${TREE_CHARS.lastBranch}${TREE_CHARS.horizontal}`
-    : `${TREE_CHARS.branch}${TREE_CHARS.horizontal}`;
+    : `${TREE_CHARS.branch}${TREE_CHARS.horizontal}`
 
   return (
     <Box>
       <Text color="gray">{prefix} </Text>
       {isSelected && <Text color="cyan">&gt; </Text>}
-      <Text bold={isCurrent} color={isCurrent ? "cyan" : undefined}>
+      <Text bold={isCurrent} color={isCurrent ? 'cyan' : undefined}>
         {branch.name}
       </Text>
       <Text> </Text>
@@ -1120,7 +1135,7 @@ function BranchNode({
       <Text> </Text>
       <StatusIndicator status={branch.syncStatus} />
     </Box>
-  );
+  )
 }
 
 // Stack tree component
@@ -1130,12 +1145,12 @@ function StackTree({
   selectedIndex,
   stackOffset,
 }: {
-  stackInfo: StackWithInfo;
-  currentBranch: string;
-  selectedIndex: number;
-  stackOffset: number;
+  stackInfo: StackWithInfo
+  currentBranch: string
+  selectedIndex: number
+  stackOffset: number
 }) {
-  const { stack, branches } = stackInfo;
+  const { stack, branches } = stackInfo
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -1155,49 +1170,49 @@ function StackTree({
         />
       ))}
     </Box>
-  );
+  )
 }
 
 // Navigation item for tracking
 interface NavItem {
-  type: "branch";
-  stackIndex: number;
-  branchIndex: number;
-  branchName: string;
+  type: 'branch'
+  stackIndex: number
+  branchIndex: number
+  branchName: string
 }
 
 function buildNavItems(stacks: StackWithInfo[]): NavItem[] {
-  const items: NavItem[] = [];
+  const items: NavItem[] = []
 
   for (let stackIdx = 0; stackIdx < stacks.length; stackIdx++) {
-    const stack = stacks[stackIdx]!;
+    const stack = stacks[stackIdx]!
     for (let branchIdx = 0; branchIdx < stack.branches.length; branchIdx++) {
       items.push({
-        type: "branch",
+        type: 'branch',
         stackIndex: stackIdx,
         branchIndex: branchIdx,
         branchName: stack.branches[branchIdx]!.name,
-      });
+      })
     }
   }
 
-  return items;
+  return items
 }
 
 // Rerere status component
 function RerereStatus({ stats }: { stats: RerereStats | null }) {
   if (!stats) {
-    return null;
+    return null
   }
 
   return (
     <Box>
       <Text color="gray">rerere: </Text>
-      <Text color={stats.trainedResolutions > 0 ? "green" : "gray"}>
-        {stats.trainedResolutions} trained resolution{stats.trainedResolutions !== 1 ? "s" : ""}
+      <Text color={stats.trainedResolutions > 0 ? 'green' : 'gray'}>
+        {stats.trainedResolutions} trained resolution{stats.trainedResolutions !== 1 ? 's' : ''}
       </Text>
     </Box>
-  );
+  )
 }
 
 // Main tree view component
@@ -1212,55 +1227,55 @@ function TreeView({
   rerereStats,
   viewPRError,
 }: {
-  stacks: StackWithInfo[];
-  currentBranch: string;
-  onSelect: (branchName: string) => void;
-  onPush: (stackIndex: number) => void;
-  onCreatePR: (stackIndex: number, branchIndex: number) => void;
-  onViewPR: (stackIndex: number, branchIndex: number) => void;
-  isPolling: boolean;
-  rerereStats: RerereStats | null;
-  viewPRError: string | null;
+  stacks: StackWithInfo[]
+  currentBranch: string
+  onSelect: (branchName: string) => void
+  onPush: (stackIndex: number) => void
+  onCreatePR: (stackIndex: number, branchIndex: number) => void
+  onViewPR: (stackIndex: number, branchIndex: number) => void
+  isPolling: boolean
+  rerereStats: RerereStats | null
+  viewPRError: string | null
 }) {
-  const { exit } = useApp();
-  const navItems = buildNavItems(stacks);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const { exit } = useApp()
+  const navItems = buildNavItems(stacks)
+  const [selectedIndex, setSelectedIndex] = useState(0)
 
   useInput((input, key) => {
-    if (input === "q" || key.escape) {
-      exit();
-      return;
+    if (input === 'q' || key.escape) {
+      exit()
+      return
     }
 
-    if (key.upArrow || input === "k") {
-      setSelectedIndex((prev) => Math.max(0, prev - 1));
-    } else if (key.downArrow || input === "j") {
-      setSelectedIndex((prev) => Math.min(navItems.length - 1, prev + 1));
+    if (key.upArrow || input === 'k') {
+      setSelectedIndex((prev) => Math.max(0, prev - 1))
+    } else if (key.downArrow || input === 'j') {
+      setSelectedIndex((prev) => Math.min(navItems.length - 1, prev + 1))
     } else if (key.return) {
-      const item = navItems[selectedIndex];
+      const item = navItems[selectedIndex]
       if (item) {
-        onSelect(item.branchName);
+        onSelect(item.branchName)
       }
-    } else if (input === "p") {
+    } else if (input === 'p') {
       // Push all branches in the stack containing the selected branch
-      const item = navItems[selectedIndex];
+      const item = navItems[selectedIndex]
       if (item) {
-        onPush(item.stackIndex);
+        onPush(item.stackIndex)
       }
-    } else if (input === "c") {
+    } else if (input === 'c') {
       // Create PR for the selected branch
-      const item = navItems[selectedIndex];
+      const item = navItems[selectedIndex]
       if (item) {
-        onCreatePR(item.stackIndex, item.branchIndex);
+        onCreatePR(item.stackIndex, item.branchIndex)
       }
-    } else if (input === "v") {
+    } else if (input === 'v') {
       // View PR in browser for the selected branch
-      const item = navItems[selectedIndex];
+      const item = navItems[selectedIndex]
       if (item) {
-        onViewPR(item.stackIndex, item.branchIndex);
+        onViewPR(item.stackIndex, item.branchIndex)
       }
     }
-  });
+  })
 
   if (stacks.length === 0) {
     return (
@@ -1268,22 +1283,25 @@ function TreeView({
         <Text color="yellow">No stacks found.</Text>
         <Text color="gray">Create one with: stackboi new &lt;branch-name&gt;</Text>
       </Box>
-    );
+    )
   }
 
   // Calculate stack offsets for selection tracking
-  let offset = 0;
-  const stackOffsets: number[] = [];
+  let offset = 0
+  const stackOffsets: number[] = []
   for (const stack of stacks) {
-    stackOffsets.push(offset);
-    offset += stack.branches.length;
+    stackOffsets.push(offset)
+    offset += stack.branches.length
   }
 
   return (
     <Box flexDirection="column">
       <Box marginBottom={1}>
         <Text bold>Stack Tree View</Text>
-        <Text color="gray"> (↑↓/jk: navigate, Enter: checkout, c: create PR, v: view PR, p: push, q: quit)</Text>
+        <Text color="gray">
+          {' '}
+          (↑↓/jk: navigate, Enter: checkout, c: create PR, v: view PR, p: push, q: quit)
+        </Text>
         {isPolling && <Text color="gray"> ⟳</Text>}
       </Box>
 
@@ -1300,13 +1318,13 @@ function TreeView({
       <Box marginTop={1}>
         <Text color="gray">Legend: </Text>
         <Text color="green">✓</Text>
-        <Text color="gray"> up-to-date  </Text>
+        <Text color="gray"> up-to-date </Text>
         <Text color="yellow">↑</Text>
-        <Text color="gray"> needs-push  </Text>
+        <Text color="gray"> needs-push </Text>
         <Text color="yellow">↓</Text>
-        <Text color="gray"> needs-rebase  </Text>
+        <Text color="gray"> needs-rebase </Text>
         <Text color="red">✗</Text>
-        <Text color="gray"> conflicts  </Text>
+        <Text color="gray"> conflicts </Text>
         <Text color="cyan">⟲</Text>
         <Text color="gray"> pending-sync</Text>
       </Box>
@@ -1321,7 +1339,7 @@ function TreeView({
         </Box>
       )}
     </Box>
-  );
+  )
 }
 
 // Merge notification overlay component
@@ -1330,17 +1348,17 @@ function MergeNotificationOverlay({
   onSync,
   onDismiss,
 }: {
-  notification: MergedPRNotification;
-  onSync: () => void;
-  onDismiss: () => void;
+  notification: MergedPRNotification
+  onSync: () => void
+  onDismiss: () => void
 }) {
   useInput((input) => {
-    if (input.toLowerCase() === "y") {
-      onSync();
-    } else if (input.toLowerCase() === "n") {
-      onDismiss();
+    if (input.toLowerCase() === 'y') {
+      onSync()
+    } else if (input.toLowerCase() === 'n') {
+      onDismiss()
     }
-  });
+  })
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" padding={1}>
@@ -1366,7 +1384,7 @@ function MergeNotificationOverlay({
           <Text color="gray">Affected child branches that need syncing:</Text>
           {notification.childBranches.map((branch) => (
             <Text key={branch} color="yellow">
-              {"  "}• {branch}
+              {'  '}• {branch}
             </Text>
           ))}
         </Box>
@@ -1386,15 +1404,15 @@ function MergeNotificationOverlay({
         <Text>o</Text>
       </Box>
     </Box>
-  );
+  )
 }
 
 // Conflict resolution state
 export interface ConflictState {
-  conflictedFiles: string[];
-  rerereResolved: string[];
-  tipBranch: string;
-  originalBranch: string;
+  conflictedFiles: string[]
+  rerereResolved: string[]
+  tipBranch: string
+  originalBranch: string
 }
 
 // Conflict resolution overlay component
@@ -1403,17 +1421,17 @@ function ConflictResolutionOverlay({
   onOpenEditor,
   onAbort,
 }: {
-  conflictState: ConflictState;
-  onOpenEditor: () => void;
-  onAbort: () => void;
+  conflictState: ConflictState
+  onOpenEditor: () => void
+  onAbort: () => void
 }) {
   useInput((input) => {
-    if (input.toLowerCase() === "e") {
-      onOpenEditor();
-    } else if (input.toLowerCase() === "a") {
-      onAbort();
+    if (input.toLowerCase() === 'e') {
+      onOpenEditor()
+    } else if (input.toLowerCase() === 'a') {
+      onAbort()
     }
-  });
+  })
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="yellow" padding={1}>
@@ -1424,9 +1442,7 @@ function ConflictResolutionOverlay({
       </Box>
 
       <Box marginBottom={1}>
-        <Text color="gray">
-          Rebase paused due to conflicts that need manual resolution.
-        </Text>
+        <Text color="gray">Rebase paused due to conflicts that need manual resolution.</Text>
       </Box>
 
       {conflictState.rerereResolved.length > 0 && (
@@ -1434,7 +1450,7 @@ function ConflictResolutionOverlay({
           <Text color="green">Rerere auto-resolved:</Text>
           {conflictState.rerereResolved.map((file) => (
             <Text key={file} color="green">
-              {"  "}✓ {file}
+              {'  '}✓ {file}
             </Text>
           ))}
         </Box>
@@ -1444,7 +1460,7 @@ function ConflictResolutionOverlay({
         <Text color="red">Files with conflicts:</Text>
         {conflictState.conflictedFiles.map((file) => (
           <Text key={file} color="red">
-            {"  "}✗ {file}
+            {'  '}✗ {file}
           </Text>
         ))}
       </Box>
@@ -1463,7 +1479,7 @@ function ConflictResolutionOverlay({
         </Text>
       </Box>
     </Box>
-  );
+  )
 }
 
 // Loading state component
@@ -1472,7 +1488,7 @@ function Loading() {
     <Box>
       <Text color="gray">Loading stack info...</Text>
     </Box>
-  );
+  )
 }
 
 // Error component
@@ -1481,7 +1497,7 @@ function ErrorDisplay({ message }: { message: string }) {
     <Box>
       <Text color="red">Error: {message}</Text>
     </Box>
-  );
+  )
 }
 
 // Sync progress dismiss handler component
@@ -1489,37 +1505,36 @@ function SyncProgressWithDismiss({
   progress,
   onDismiss,
 }: {
-  progress: SyncProgress;
-  onDismiss: () => void;
+  progress: SyncProgress
+  onDismiss: () => void
 }) {
   useInput(() => {
-    if (progress.state === "success" || progress.state === "error") {
-      onDismiss();
+    if (progress.state === 'success' || progress.state === 'error') {
+      onDismiss()
     }
-  });
+  })
 
-  return <SyncProgressOverlay progress={progress} />;
+  return <SyncProgressOverlay progress={progress} />
 }
 
 // Main app component
 function App() {
-  const { exit } = useApp();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [stacks, setStacks] = useState<StackWithInfo[]>([]);
-  const [currentBranch, setCurrentBranch] = useState<string>("");
-  const [checkingOut, setCheckingOut] = useState<string | null>(null);
-  const [ghAuthenticated, setGhAuthenticated] = useState(false);
-  const [pollIntervalMs, setPollIntervalMs] = useState(DEFAULT_POLL_INTERVAL_MS);
-  const [isPolling, setIsPolling] = useState(false);
-  const [mergeNotification, setMergeNotification] = useState<MergedPRNotification | null>(null);
-  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
-  const [rerereStats, setRerereStats] = useState<RerereStats | null>(null);
-  const [conflictState, setConflictState] = useState<ConflictState | null>(null);
-  const [pendingNotification, setPendingNotification] = useState<MergedPRNotification | null>(null);
-  const [pushProgress, setPushProgress] = useState<PushProgress | null>(null);
-  const [createPRProgress, setCreatePRProgress] = useState<CreatePRProgress | null>(null);
-  const [viewPRError, setViewPRError] = useState<string | null>(null);
+  const { exit } = useApp()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [stacks, setStacks] = useState<StackWithInfo[]>([])
+  const [currentBranch, setCurrentBranch] = useState<string>('')
+  const [checkingOut, setCheckingOut] = useState<string | null>(null)
+  const [ghAuthenticated, setGhAuthenticated] = useState(false)
+  const [pollIntervalMs, setPollIntervalMs] = useState(DEFAULT_POLL_INTERVAL_MS)
+  const [isPolling, setIsPolling] = useState(false)
+  const [mergeNotification, setMergeNotification] = useState<MergedPRNotification | null>(null)
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null)
+  const [rerereStats, setRerereStats] = useState<RerereStats | null>(null)
+  const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+  const [pushProgress, setPushProgress] = useState<PushProgress | null>(null)
+  const [createPRProgress, setCreatePRProgress] = useState<CreatePRProgress | null>(null)
+  const [viewPRError, setViewPRError] = useState<string | null>(null)
 
   // Initial load
   useEffect(() => {
@@ -1530,147 +1545,156 @@ function App() {
           getGitRoot(),
           checkGhAuth(),
           getRerereStats(),
-        ]);
+        ])
 
-        setCurrentBranch(branch);
-        setGhAuthenticated(authenticated);
-        setRerereStats(stats);
-        const config = await loadConfig(gitRoot);
-        setPollIntervalMs(config.settings.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
-        const stacksWithInfo = await getStacksWithInfo(config, authenticated);
-        setStacks(stacksWithInfo);
-        setLoading(false);
+        setCurrentBranch(branch)
+        setGhAuthenticated(authenticated)
+        setRerereStats(stats)
+        const config = await loadConfig(gitRoot)
+        setPollIntervalMs(config.settings.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS)
+        const stacksWithInfo = await getStacksWithInfo(config, authenticated)
+        setStacks(stacksWithInfo)
+        setLoading(false)
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-        setLoading(false);
+        setError(err instanceof Error ? err.message : String(err))
+        setLoading(false)
       }
     }
 
-    load();
-  }, []);
+    load()
+  }, [])
 
   // Poll for PR status updates
   useEffect(() => {
     if (loading || !ghAuthenticated || stacks.length === 0) {
-      return;
+      return
     }
 
     const pollPRStatus = async () => {
-      setIsPolling(true);
+      setIsPolling(true)
       try {
-        const prStatuses = await fetchAllPRStatuses(stacks, ghAuthenticated);
-        const { updated, hasChanges, newlyMerged } = applyPRStatusUpdates(stacks, prStatuses);
+        const prStatuses = await fetchAllPRStatuses(stacks, ghAuthenticated)
+        const { updated, hasChanges, newlyMerged } = applyPRStatusUpdates(stacks, prStatuses)
         if (hasChanges) {
-          setStacks(updated);
+          setStacks(updated)
         }
         // Show notification for first newly merged PR (queue additional ones if needed)
         if (newlyMerged.length > 0 && !mergeNotification) {
-          setMergeNotification(newlyMerged[0]!);
+          setMergeNotification(newlyMerged[0]!)
         }
       } catch {
         // Silently ignore polling errors - don't disrupt the UI
       } finally {
-        setIsPolling(false);
+        setIsPolling(false)
       }
-    };
+    }
 
-    const intervalId = setInterval(pollPRStatus, pollIntervalMs);
+    const intervalId = setInterval(pollPRStatus, pollIntervalMs)
 
     return () => {
-      clearInterval(intervalId);
-    };
-  }, [loading, ghAuthenticated, stacks, pollIntervalMs, mergeNotification]);
+      clearInterval(intervalId)
+    }
+  }, [loading, ghAuthenticated, stacks, pollIntervalMs, mergeNotification])
 
   const handleSelect = async (branchName: string) => {
     if (branchName === currentBranch) {
-      return;
+      return
     }
 
-    setCheckingOut(branchName);
+    setCheckingOut(branchName)
     try {
-      await $`git checkout ${branchName}`.quiet();
-      setCurrentBranch(branchName);
+      await $`git checkout ${branchName}`.quiet()
+      setCurrentBranch(branchName)
     } catch (err) {
-      setError(`Failed to checkout: ${err instanceof Error ? err.message : String(err)}`);
+      setError(`Failed to checkout: ${err instanceof Error ? err.message : String(err)}`)
     }
-    setCheckingOut(null);
-  };
+    setCheckingOut(null)
+  }
 
   // Handle sync request from merge notification
   const handleSync = async () => {
-    if (!mergeNotification) return;
+    if (!mergeNotification) return
 
-    const notification = mergeNotification;
-    setMergeNotification(null);
-    setPendingNotification(notification);
+    const notification = mergeNotification
+    setMergeNotification(null)
+    setPendingNotification(notification)
 
     // Start the sync operation
-    const result = await performSync(notification, (progress) => {
-      setSyncProgress(progress);
-    }, ghAuthenticated);
+    const result = await performSync(
+      notification,
+      (progress) => {
+        setSyncProgress(progress)
+      },
+      ghAuthenticated,
+    )
 
     // Check if there are unresolved conflicts
-    if (!result.success && result.error === "unresolved-conflicts") {
-      const resultWithConflicts = result as { success: boolean; error?: string; conflictedFiles?: string[]; rerereResolved?: string[] };
-      setSyncProgress(null);
+    if (!result.success && result.error === 'unresolved-conflicts') {
+      const resultWithConflicts = result as {
+        success: boolean
+        error?: string
+        conflictedFiles?: string[]
+        rerereResolved?: string[]
+      }
+      setSyncProgress(null)
       setConflictState({
         conflictedFiles: resultWithConflicts.conflictedFiles || [],
         rerereResolved: resultWithConflicts.rerereResolved || [],
-        tipBranch: notification.childBranches[notification.childBranches.length - 1] || "",
+        tipBranch: notification.childBranches[notification.childBranches.length - 1] || '',
         originalBranch: await getCurrentBranch(),
-      });
+      })
     }
-  };
+  }
 
   // Handle dismissal of sync progress overlay
   const handleSyncProgressDismiss = async () => {
-    const progress = syncProgress;
-    setSyncProgress(null);
+    const progress = syncProgress
+    setSyncProgress(null)
 
     // Reload stacks after successful sync
-    if (progress?.state === "success") {
+    if (progress?.state === 'success') {
       try {
-        const gitRoot = await getGitRoot();
-        const config = await loadConfig(gitRoot);
-        const updatedStacks = await getStacksWithInfo(config, ghAuthenticated);
-        setStacks(updatedStacks);
-        const branch = await getCurrentBranch();
-        setCurrentBranch(branch);
+        const gitRoot = await getGitRoot()
+        const config = await loadConfig(gitRoot)
+        const updatedStacks = await getStacksWithInfo(config, ghAuthenticated)
+        setStacks(updatedStacks)
+        const branch = await getCurrentBranch()
+        setCurrentBranch(branch)
       } catch {
         // Ignore errors during reload
       }
     }
-  };
+  }
 
   // Handle opening editor for conflict resolution
   const handleOpenEditor = async () => {
-    if (!conflictState) return;
+    if (!conflictState) return
 
     // Open the first conflicted file in the user's editor
-    const editor = process.env.EDITOR || process.env.VISUAL || "vim";
-    const firstFile = conflictState.conflictedFiles[0];
+    const editor = process.env.EDITOR || process.env.VISUAL || 'vim'
+    const firstFile = conflictState.conflictedFiles[0]
     if (firstFile) {
       // Exit the app so user can edit
-      exit();
-      console.log(`\nOpening ${firstFile} in ${editor}...`);
-      console.log(`After resolving conflicts, run: git add <files> && git rebase --continue\n`);
-      await $`${editor} ${firstFile}`.nothrow();
+      exit()
+      console.log(`\nOpening ${firstFile} in ${editor}...`)
+      console.log(`After resolving conflicts, run: git add <files> && git rebase --continue\n`)
+      await $`${editor} ${firstFile}`.nothrow()
     }
-  };
+  }
 
   // Handle abort rebase from conflict state
   const handleAbortRebase = async () => {
-    if (!conflictState) return;
+    if (!conflictState) return
 
-    await $`git rebase --abort`.quiet().nothrow();
-    await $`git checkout ${conflictState.originalBranch}`.quiet().nothrow();
-    setConflictState(null);
-    setPendingNotification(null);
+    await $`git rebase --abort`.quiet().nothrow()
+    await $`git checkout ${conflictState.originalBranch}`.quiet().nothrow()
+    setConflictState(null)
+    setPendingNotification(null)
 
     // Reload current branch
-    const branch = await getCurrentBranch();
-    setCurrentBranch(branch);
-  };
+    const branch = await getCurrentBranch()
+    setCurrentBranch(branch)
+  }
 
   // Handle dismissal of merge notification - mark child branches as pending-sync
   const handleDismissMergeNotification = () => {
@@ -1681,159 +1705,159 @@ function App() {
           ...stackInfo,
           branches: stackInfo.branches.map((branch) => {
             if (mergeNotification.childBranches.includes(branch.name)) {
-              return { ...branch, syncStatus: "pending-sync" as SyncStatus };
+              return { ...branch, syncStatus: 'pending-sync' as SyncStatus }
             }
-            return branch;
+            return branch
           }),
-        }))
-      );
+        })),
+      )
     }
-    setMergeNotification(null);
-  };
+    setMergeNotification(null)
+  }
 
   // Handle push request for a stack
   const handlePush = async (stackIndex: number) => {
-    const stackInfo = stacks[stackIndex];
-    if (!stackInfo) return;
+    const stackInfo = stacks[stackIndex]
+    if (!stackInfo) return
 
     await pushAllBranches(stackInfo.stack, (progress) => {
-      setPushProgress(progress);
-    });
-  };
+      setPushProgress(progress)
+    })
+  }
 
   // Handle dismissal of push progress overlay
   const handlePushProgressDismiss = async () => {
-    const progress = pushProgress;
-    setPushProgress(null);
+    const progress = pushProgress
+    setPushProgress(null)
 
     // Reload sync status after push (branches may now be up-to-date)
-    if (progress?.state === "success" || progress?.state === "error") {
+    if (progress?.state === 'success' || progress?.state === 'error') {
       try {
-        const gitRoot = await getGitRoot();
-        const config = await loadConfig(gitRoot);
-        const updatedStacks = await getStacksWithInfo(config, ghAuthenticated);
-        setStacks(updatedStacks);
+        const gitRoot = await getGitRoot()
+        const config = await loadConfig(gitRoot)
+        const updatedStacks = await getStacksWithInfo(config, ghAuthenticated)
+        setStacks(updatedStacks)
       } catch {
         // Ignore errors during reload
       }
     }
-  };
+  }
 
   // Handle create PR request for a branch
   const handleCreatePR = async (stackIndex: number, branchIndex: number) => {
-    const stackInfo = stacks[stackIndex];
-    if (!stackInfo) return;
+    const stackInfo = stacks[stackIndex]
+    if (!stackInfo) return
 
-    const branchInfo = stackInfo.branches[branchIndex];
-    if (!branchInfo) return;
+    const branchInfo = stackInfo.branches[branchIndex]
+    if (!branchInfo) return
 
     // Check if PR already exists
     if (branchInfo.prNumber !== null) {
       setCreatePRProgress({
-        state: "error",
+        state: 'error',
         branchName: branchInfo.name,
-        parentBranch: "",
-        suggestedTitle: "",
-        stackPosition: "",
-        message: "",
+        parentBranch: '',
+        suggestedTitle: '',
+        stackPosition: '',
+        message: '',
         error: `PR already exists for branch '${branchInfo.name}': #${branchInfo.prNumber}`,
-      });
-      return;
+      })
+      return
     }
 
     // Get parent branch and suggested title
-    const parentBranch = getParentBranch(stackInfo.stack, branchInfo.name);
-    const { position, total } = getStackPosition(stackInfo.stack, branchInfo.name);
-    const suggestedTitle = generateTitleFromBranchName(branchInfo.name);
+    const parentBranch = getParentBranch(stackInfo.stack, branchInfo.name)
+    const { position, total } = getStackPosition(stackInfo.stack, branchInfo.name)
+    const suggestedTitle = generateTitleFromBranchName(branchInfo.name)
 
     // Show confirmation dialog
     setCreatePRProgress({
-      state: "confirm",
+      state: 'confirm',
       branchName: branchInfo.name,
       parentBranch,
       suggestedTitle,
       stackPosition: `${position}/${total}`,
-      message: "",
-    });
-  };
+      message: '',
+    })
+  }
 
   // Handle PR creation confirmation
   const handleCreatePRConfirm = async (draft: boolean) => {
-    if (!createPRProgress) return;
+    if (!createPRProgress) return
 
-    const branchName = createPRProgress.branchName;
+    const branchName = createPRProgress.branchName
 
     setCreatePRProgress({
       ...createPRProgress,
-      state: "creating",
-      message: "Creating pull request...",
-    });
+      state: 'creating',
+      message: 'Creating pull request...',
+    })
 
-    const result = await createPR({ branchName, draft });
+    const result = await createPR({ branchName, draft })
 
     if (result.success) {
       setCreatePRProgress({
         ...createPRProgress,
-        state: "success",
-        message: "Pull request created successfully!",
+        state: 'success',
+        message: 'Pull request created successfully!',
         prNumber: result.prNumber,
         prUrl: result.prUrl,
-      });
+      })
     } else {
       setCreatePRProgress({
         ...createPRProgress,
-        state: "error",
-        error: result.error || "Failed to create PR",
-      });
+        state: 'error',
+        error: result.error || 'Failed to create PR',
+      })
     }
-  };
+  }
 
   // Handle PR creation cancellation
   const handleCreatePRCancel = () => {
-    setCreatePRProgress(null);
-  };
+    setCreatePRProgress(null)
+  }
 
   // Handle dismissal of create PR overlay
   const handleCreatePRDismiss = async () => {
-    setCreatePRProgress(null);
+    setCreatePRProgress(null)
 
     // Reload stacks to update PR status
     try {
-      const gitRoot = await getGitRoot();
-      const config = await loadConfig(gitRoot);
-      const updatedStacks = await getStacksWithInfo(config, ghAuthenticated);
-      setStacks(updatedStacks);
+      const gitRoot = await getGitRoot()
+      const config = await loadConfig(gitRoot)
+      const updatedStacks = await getStacksWithInfo(config, ghAuthenticated)
+      setStacks(updatedStacks)
     } catch {
       // Ignore errors during reload
     }
-  };
+  }
 
   // Handle viewing PR in browser
   const handleViewPR = async (stackIndex: number, branchIndex: number) => {
-    const stackInfo = stacks[stackIndex];
-    if (!stackInfo) return;
+    const stackInfo = stacks[stackIndex]
+    if (!stackInfo) return
 
-    const branchInfo = stackInfo.branches[branchIndex];
-    if (!branchInfo) return;
+    const branchInfo = stackInfo.branches[branchIndex]
+    if (!branchInfo) return
 
     // Check if branch has a PR
-    if (branchInfo.prStatus === "none" || branchInfo.prNumber === null) {
-      setViewPRError(`No PR exists for branch "${branchInfo.name}". Press 'c' to create one.`);
+    if (branchInfo.prStatus === 'none' || branchInfo.prNumber === null) {
+      setViewPRError(`No PR exists for branch "${branchInfo.name}". Press 'c' to create one.`)
       // Auto-dismiss after 3 seconds
-      setTimeout(() => setViewPRError(null), 3000);
-      return;
+      setTimeout(() => setViewPRError(null), 3000)
+      return
     }
 
     // Open PR in browser
-    await $`gh pr view ${branchInfo.name} --web`.quiet().nothrow();
-  };
+    await $`gh pr view ${branchInfo.name} --web`.quiet().nothrow()
+  }
 
   if (loading) {
-    return <Loading />;
+    return <Loading />
   }
 
   if (error) {
-    return <ErrorDisplay message={error} />;
+    return <ErrorDisplay message={error} />
   }
 
   if (checkingOut) {
@@ -1841,25 +1865,15 @@ function App() {
       <Box>
         <Text color="yellow">Checking out {checkingOut}...</Text>
       </Box>
-    );
+    )
   }
 
   if (syncProgress) {
-    return (
-      <SyncProgressWithDismiss
-        progress={syncProgress}
-        onDismiss={handleSyncProgressDismiss}
-      />
-    );
+    return <SyncProgressWithDismiss progress={syncProgress} onDismiss={handleSyncProgressDismiss} />
   }
 
   if (pushProgress) {
-    return (
-      <PushProgressWithDismiss
-        progress={pushProgress}
-        onDismiss={handlePushProgressDismiss}
-      />
-    );
+    return <PushProgressWithDismiss progress={pushProgress} onDismiss={handlePushProgressDismiss} />
   }
 
   if (createPRProgress) {
@@ -1871,7 +1885,7 @@ function App() {
         onCancel={handleCreatePRCancel}
         onDismiss={handleCreatePRDismiss}
       />
-    );
+    )
   }
 
   if (mergeNotification) {
@@ -1881,7 +1895,7 @@ function App() {
         onSync={handleSync}
         onDismiss={handleDismissMergeNotification}
       />
-    );
+    )
   }
 
   if (conflictState) {
@@ -1891,7 +1905,7 @@ function App() {
         onOpenEditor={handleOpenEditor}
         onAbort={handleAbortRebase}
       />
-    );
+    )
   }
 
   return (
@@ -1906,17 +1920,17 @@ function App() {
       rerereStats={rerereStats}
       viewPRError={viewPRError}
     />
-  );
+  )
 }
 
 export async function view(): Promise<void> {
   if (!(await isGitRepo())) {
-    throw new Error("Not a git repository");
+    throw new Error('Not a git repository')
   }
 
-  showCopyrightNotice();
-  console.log("");
+  showCopyrightNotice()
+  console.log('')
 
-  const { waitUntilExit } = render(<App />);
-  await waitUntilExit();
+  const { waitUntilExit } = render(<App />)
+  await waitUntilExit()
 }

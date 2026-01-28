@@ -7,13 +7,13 @@
     "type": "git",
     "url": "https://github.com/stackboi/stackboi"
   },
+  "bin": {
+    "stackboi": "./stackboi"
+  },
   "os": [
     "darwin"
   ],
   "cpu": [
     "arm64"
-  ],
-  "bin": {
-    "stackboi": "./stackboi"
-  }
+  ]
 }

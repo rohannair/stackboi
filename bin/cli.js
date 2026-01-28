@@ -1,63 +1,62 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
+import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
+import path from 'node:path'
 
-const require = createRequire(import.meta.url);
+const require = createRequire(import.meta.url)
 
 const PLATFORMS = {
-  "darwin-arm64": "@stackboi/darwin-arm64",
-  "darwin-x64": "@stackboi/darwin-x64",
-  "linux-x64": "@stackboi/linux-x64",
-  "linux-arm64": "@stackboi/linux-arm64",
-  "win32-x64": "@stackboi/win32-x64",
-};
+  'darwin-arm64': '@stackboi/darwin-arm64',
+  'darwin-x64': '@stackboi/darwin-x64',
+  'linux-x64': '@stackboi/linux-x64',
+  'linux-arm64': '@stackboi/linux-arm64',
+  'win32-x64': '@stackboi/win32-x64',
+}
 
 function getPlatformPackage() {
-  const platform = process.platform;
-  const arch = process.arch;
-  const key = `${platform}-${arch}`;
+  const platform = process.platform
+  const arch = process.arch
+  const key = `${platform}-${arch}`
 
-  const pkg = PLATFORMS[key];
+  const pkg = PLATFORMS[key]
   if (!pkg) {
-    console.error(`Unsupported platform: ${platform}-${arch}`);
-    console.error(`Supported platforms: ${Object.keys(PLATFORMS).join(", ")}`);
-    process.exit(1);
+    console.error(`Unsupported platform: ${platform}-${arch}`)
+    console.error(`Supported platforms: ${Object.keys(PLATFORMS).join(', ')}`)
+    process.exit(1)
   }
 
-  return pkg;
+  return pkg
 }
 
 function getBinaryPath() {
-  const pkg = getPlatformPackage();
+  const pkg = getPlatformPackage()
 
   try {
-    const pkgPath = require.resolve(`${pkg}/package.json`);
-    const pkgDir = path.dirname(pkgPath);
-    const pkgJson = require(pkgPath);
-    const binName = pkgJson.bin?.stackboi || "stackboi";
-    return path.join(pkgDir, binName);
-  } catch (err) {
-    console.error(`Failed to find binary for your platform.`);
-    console.error(`Please ensure ${pkg} is installed.`);
-    console.error(`Try: npm install ${pkg}`);
-    process.exit(1);
+    const pkgPath = require.resolve(`${pkg}/package.json`)
+    const pkgDir = path.dirname(pkgPath)
+    const pkgJson = require(pkgPath)
+    const binName = pkgJson.bin?.stackboi || 'stackboi'
+    return path.join(pkgDir, binName)
+  } catch {
+    console.error(`Failed to find binary for your platform.`)
+    console.error(`Please ensure ${pkg} is installed.`)
+    console.error(`Try: npm install ${pkg}`)
+    process.exit(1)
   }
 }
 
-const binaryPath = getBinaryPath();
-const args = process.argv.slice(2);
+const binaryPath = getBinaryPath()
+const args = process.argv.slice(2)
 
 const result = spawnSync(binaryPath, args, {
-  stdio: "inherit",
+  stdio: 'inherit',
   env: process.env,
-});
+})
 
 if (result.error) {
-  console.error(`Failed to run stackboi: ${result.error.message}`);
-  process.exit(1);
+  console.error(`Failed to run stackboi: ${result.error.message}`)
+  process.exit(1)
 }
 
-process.exit(result.status ?? 1);
+process.exit(result.status ?? 1)

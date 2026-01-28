@@ -2,36 +2,47 @@
   "name": "stackboi",
   "version": "0.1.0",
   "description": "A stacked branch workflow tool",
-  "type": "module",
   "bin": {
     "stackboi": "./dist/cli.js"
   },
   "files": [
     "dist"
   ],
+  "type": "module",
   "scripts": {
     "build": "bun scripts/build.ts",
     "build:current": "bun scripts/build.ts --current",
     "publish:all": "bun scripts/publish.ts",
-    "publish:dry-run": "bun scripts/publish.ts --dry-run"
+    "publish:dry-run": "bun scripts/publish.ts --dry-run",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "check": "bun run lint && bun run format:check"
   },
-  "optionalDependencies": {
-    "@stackboi/darwin-arm64": "0.1.0",
-    "@stackboi/darwin-x64": "0.1.0",
-    "@stackboi/linux-x64": "0.1.0",
-    "@stackboi/linux-arm64": "0.1.0",
-    "@stackboi/win32-x64": "0.1.0"
+  "dependencies": {
+    "@effect/cli": "^0.73.1",
+    "@effect/platform": "^0.94.2",
+    "@effect/platform-bun": "^0.87.1",
+    "effect": "^3.19.15",
+    "ink": "^6.6.0",
+    "react": "^19.2.4"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/react": "^19.2.10",
+    "oxfmt": "^0.27.0",
+    "oxlint": "^1.42.0",
     "react-devtools-core": "^7.0.1"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
-  "dependencies": {
-    "ink": "^6.6.0",
-    "react": "^19.2.4"
+  "optionalDependencies": {
+    "@stackboi/darwin-arm64": "0.1.0",
+    "@stackboi/darwin-x64": "0.1.0",
+    "@stackboi/linux-arm64": "0.1.0",
+    "@stackboi/linux-x64": "0.1.0",
+    "@stackboi/win32-x64": "0.1.0"
   }
 }

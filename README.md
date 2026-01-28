@@ -51,13 +51,13 @@ bun run index.ts view
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `init` | Initialize stackboi in the current repo |
+| Command        | Description                               |
+| -------------- | ----------------------------------------- |
+| `init`         | Initialize stackboi in the current repo   |
 | `new <branch>` | Create a new stack with an initial branch |
-| `add <branch>` | Add a branch to the current stack |
-| `view` | Open interactive tree view |
-| `pr <branch>` | Create a GitHub PR for a branch |
+| `add <branch>` | Add a branch to the current stack         |
+| `view`         | Open interactive tree view                |
+| `pr <branch>`  | Create a GitHub PR for a branch           |
 
 ## How It Works
 
