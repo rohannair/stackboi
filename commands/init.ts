@@ -18,6 +18,7 @@ export interface Settings {
     autoupdate: boolean;
   };
   defaultBaseBranch: string;
+  pollIntervalMs: number;
 }
 
 export interface InitOptions {
@@ -79,6 +80,8 @@ export async function getDefaultBranch(): Promise<string> {
   return "main";
 }
 
+export const DEFAULT_POLL_INTERVAL_MS = 30_000;
+
 export function createDefaultConfig(defaultBranch: string): StackboiConfig {
   return {
     version: 1,
@@ -89,6 +92,7 @@ export function createDefaultConfig(defaultBranch: string): StackboiConfig {
         autoupdate: true,
       },
       defaultBaseBranch: defaultBranch,
+      pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
     },
   };
 }

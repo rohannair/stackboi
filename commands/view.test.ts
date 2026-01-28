@@ -9,6 +9,7 @@ describe("view", () => {
     settings: {
       rerere: { enabled: true, autoupdate: true },
       defaultBaseBranch: "main",
+      pollIntervalMs: 30000,
     },
   });
 

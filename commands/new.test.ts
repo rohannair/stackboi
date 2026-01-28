@@ -82,6 +82,7 @@ describe("findStackByBranch", () => {
     settings: {
       rerere: { enabled: true, autoupdate: true },
       defaultBaseBranch: "main",
+      pollIntervalMs: 30000,
     },
   };
 
@@ -107,6 +108,7 @@ describe("findStackByBranch", () => {
       settings: {
         rerere: { enabled: true, autoupdate: true },
         defaultBaseBranch: "main",
+        pollIntervalMs: 30000,
       },
     };
     const result = findStackByBranch(emptyConfig, "any-branch");

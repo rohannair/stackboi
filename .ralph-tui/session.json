@@ -3,10 +3,10 @@
   "sessionId": "a151e077-4d21-4efb-ad9d-a5f3d204010f",
   "status": "running",
   "startedAt": "2026-01-28T21:04:10.863Z",
-  "updatedAt": "2026-01-28T21:21:31.282Z",
-  "currentIteration": 3,
+  "updatedAt": "2026-01-28T21:25:07.701Z",
+  "currentIteration": 4,
   "maxIterations": 25,
-  "tasksCompleted": 3,
+  "tasksCompleted": 4,
   "isPaused": false,
   "agentPlugin": "claude",
   "trackerState": {
@@ -35,8 +35,8 @@
       {
         "id": "US-004",
         "title": "Display stack tree view",
-        "status": "open",
-        "completedInSession": false
+        "status": "completed",
+        "completedInSession": true
       },
       {
         "id": "US-005",
@@ -142,6 +142,16 @@
       "durationMs": 130614,
       "startedAt": "2026-01-28T21:10:48.800Z",
       "endedAt": "2026-01-28T21:12:59.414Z"
+    },
+    {
+      "iteration": 4,
+      "status": "completed",
+      "taskId": "US-004",
+      "taskTitle": "Display stack tree view",
+      "taskCompleted": true,
+      "durationMs": 510657,
+      "startedAt": "2026-01-28T21:13:00.618Z",
+      "endedAt": "2026-01-28T21:21:31.275Z"
     }
   ],
   "skippedTaskIds": [],

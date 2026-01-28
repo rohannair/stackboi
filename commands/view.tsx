@@ -7,6 +7,7 @@ import {
   getGitRoot,
   isGitRepo,
   checkGhAuth,
+  DEFAULT_POLL_INTERVAL_MS,
 } from "./init";
 import { loadConfig, getCurrentBranch } from "./new";
 
@@ -157,6 +158,59 @@ async function getStacksWithInfo(
   return result;
 }
 
+// Fetch only PR status for all branches (used for polling)
+async function fetchAllPRStatuses(
+  stacks: StackWithInfo[],
+  ghAuthenticated: boolean
+): Promise<Map<string, { prNumber: number | null; prStatus: PRStatus }>> {
+  const result = new Map<string, { prNumber: number | null; prStatus: PRStatus }>();
+
+  // Collect all branch names
+  const allBranches: string[] = [];
+  for (const stackInfo of stacks) {
+    for (const branch of stackInfo.branches) {
+      allBranches.push(branch.name);
+    }
+  }
+
+  // Fetch PR info for all branches in parallel
+  const prInfoPromises = allBranches.map(async (branchName) => {
+    const info = await getBranchPRInfo(branchName, ghAuthenticated);
+    return { branchName, info };
+  });
+
+  const prInfoResults = await Promise.all(prInfoPromises);
+  for (const { branchName, info } of prInfoResults) {
+    result.set(branchName, info);
+  }
+
+  return result;
+}
+
+// Apply PR status updates to stacks
+function applyPRStatusUpdates(
+  stacks: StackWithInfo[],
+  prStatuses: Map<string, { prNumber: number | null; prStatus: PRStatus }>
+): { updated: StackWithInfo[]; hasChanges: boolean } {
+  let hasChanges = false;
+  const updated = stacks.map((stackInfo) => ({
+    ...stackInfo,
+    branches: stackInfo.branches.map((branch) => {
+      const newStatus = prStatuses.get(branch.name);
+      if (newStatus && (newStatus.prNumber !== branch.prNumber || newStatus.prStatus !== branch.prStatus)) {
+        hasChanges = true;
+        return {
+          ...branch,
+          prNumber: newStatus.prNumber,
+          prStatus: newStatus.prStatus,
+        };
+      }
+      return branch;
+    }),
+  }));
+  return { updated, hasChanges };
+}
+
 // Status indicator component
 function StatusIndicator({ status }: { status: SyncStatus }) {
   const indicators: Record<SyncStatus, { symbol: string; color: string }> = {
@@ -289,10 +343,12 @@ function TreeView({
   stacks,
   currentBranch,
   onSelect,
+  isPolling,
 }: {
   stacks: StackWithInfo[];
   currentBranch: string;
   onSelect: (branchName: string) => void;
+  isPolling: boolean;
 }) {
   const { exit } = useApp();
   const navItems = buildNavItems(stacks);
@@ -338,6 +394,7 @@ function TreeView({
       <Box marginBottom={1}>
         <Text bold>Stack Tree View</Text>
         <Text color="gray"> (↑↓/jk: navigate, Enter: checkout, q: quit)</Text>
+        {isPolling && <Text color="gray"> ⟳</Text>}
       </Box>
 
       {stacks.map((stackInfo, idx) => (
@@ -391,19 +448,25 @@ function App() {
   const [stacks, setStacks] = useState<StackWithInfo[]>([]);
   const [currentBranch, setCurrentBranch] = useState<string>("");
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
+  const [ghAuthenticated, setGhAuthenticated] = useState(false);
+  const [pollIntervalMs, setPollIntervalMs] = useState(DEFAULT_POLL_INTERVAL_MS);
+  const [isPolling, setIsPolling] = useState(false);
 
+  // Initial load
   useEffect(() => {
     async function load() {
       try {
-        const [branch, gitRoot, ghAuthenticated] = await Promise.all([
+        const [branch, gitRoot, authenticated] = await Promise.all([
           getCurrentBranch(),
           getGitRoot(),
           checkGhAuth(),
         ]);
 
         setCurrentBranch(branch);
+        setGhAuthenticated(authenticated);
         const config = await loadConfig(gitRoot);
-        const stacksWithInfo = await getStacksWithInfo(config, ghAuthenticated);
+        setPollIntervalMs(config.settings.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+        const stacksWithInfo = await getStacksWithInfo(config, authenticated);
         setStacks(stacksWithInfo);
         setLoading(false);
       } catch (err) {
@@ -414,6 +477,34 @@ function App() {
 
     load();
   }, []);
+
+  // Poll for PR status updates
+  useEffect(() => {
+    if (loading || !ghAuthenticated || stacks.length === 0) {
+      return;
+    }
+
+    const pollPRStatus = async () => {
+      setIsPolling(true);
+      try {
+        const prStatuses = await fetchAllPRStatuses(stacks, ghAuthenticated);
+        const { updated, hasChanges } = applyPRStatusUpdates(stacks, prStatuses);
+        if (hasChanges) {
+          setStacks(updated);
+        }
+      } catch {
+        // Silently ignore polling errors - don't disrupt the UI
+      } finally {
+        setIsPolling(false);
+      }
+    };
+
+    const intervalId = setInterval(pollPRStatus, pollIntervalMs);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [loading, ghAuthenticated, stacks, pollIntervalMs]);
 
   const handleSelect = async (branchName: string) => {
     if (branchName === currentBranch) {
@@ -451,6 +542,7 @@ function App() {
       stacks={stacks}
       currentBranch={currentBranch}
       onSelect={handleSelect}
+      isPolling={isPolling}
     />
   );
 }
