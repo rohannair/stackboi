@@ -1,6 +1,6 @@
 {
   "name": "@stackboi/win32-x64",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "stackboi binary for win32-x64",
   "license": "MIT",
   "repository": {

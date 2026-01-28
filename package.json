@@ -1,6 +1,6 @@
 {
   "name": "stackboi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A stacked branch workflow tool",
   "bin": {
     "sb": "./dist/cli.js"
@@ -42,10 +42,10 @@
     "typescript": "^5"
   },
   "optionalDependencies": {
-    "@stackboi/darwin-arm64": "0.1.0",
-    "@stackboi/darwin-x64": "0.1.0",
-    "@stackboi/linux-arm64": "0.1.0",
-    "@stackboi/linux-x64": "0.1.0",
-    "@stackboi/win32-x64": "0.1.0"
+    "@stackboi/darwin-arm64": "0.1.1",
+    "@stackboi/darwin-x64": "0.1.1",
+    "@stackboi/linux-arm64": "0.1.1",
+    "@stackboi/linux-x64": "0.1.1",
+    "@stackboi/win32-x64": "0.1.1"
   }
 }
