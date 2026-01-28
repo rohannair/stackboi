@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import type { StackboiConfig, Stack } from "./init";
-import type { BranchInfo, StackWithInfo, SyncStatus, PRStatus, SyncState, SyncProgress, MergedPRNotification } from "./view";
+import type { BranchInfo, StackWithInfo, SyncStatus, PRStatus, SyncState, SyncProgress, MergedPRNotification, ConflictState } from "./view";
 
 describe("view", () => {
   const createMockConfig = (stacks: Stack[]): StackboiConfig => ({
@@ -65,11 +65,13 @@ describe("view", () => {
         "idle",
         "fetching",
         "rebasing",
+        "checking-conflicts",
+        "awaiting-user",
         "success",
         "error",
       ];
 
-      expect(states).toHaveLength(5);
+      expect(states).toHaveLength(7);
       states.forEach((state) => {
         expect(typeof state).toBe("string");
       });
@@ -85,6 +87,8 @@ describe("view", () => {
         childBranches: ["feature-2", "feature-3"],
         currentBranch: "feature-2",
         error: null,
+        conflictedFiles: [],
+        rerereResolved: [],
       };
 
       expect(progress.state).toBe("rebasing");
@@ -93,6 +97,8 @@ describe("view", () => {
       expect(progress.childBranches).toHaveLength(2);
       expect(progress.currentBranch).toBe("feature-2");
       expect(progress.error).toBeNull();
+      expect(progress.conflictedFiles).toHaveLength(0);
+      expect(progress.rerereResolved).toHaveLength(0);
     });
 
     test("sync progress can have error state", () => {
@@ -103,10 +109,13 @@ describe("view", () => {
         childBranches: ["feature-2"],
         currentBranch: "feature-2",
         error: "Conflicts detected",
+        conflictedFiles: ["src/index.ts"],
+        rerereResolved: [],
       };
 
       expect(progress.state).toBe("error");
       expect(progress.error).toBe("Conflicts detected");
+      expect(progress.conflictedFiles).toHaveLength(1);
     });
 
     test("sync progress success state", () => {
@@ -117,10 +126,44 @@ describe("view", () => {
         childBranches: ["feature-2"],
         currentBranch: null,
         error: null,
+        conflictedFiles: [],
+        rerereResolved: [],
       };
 
       expect(progress.state).toBe("success");
       expect(progress.currentBranch).toBeNull();
+    });
+
+    test("sync progress with rerere resolved files", () => {
+      const progress: SyncProgress = {
+        state: "rebasing",
+        message: "Rerere resolved 2 conflict(s), continuing rebase...",
+        mergedBranch: "feature-1",
+        childBranches: ["feature-2"],
+        currentBranch: "feature-2",
+        error: null,
+        conflictedFiles: [],
+        rerereResolved: ["src/config.ts", "src/utils.ts"],
+      };
+
+      expect(progress.rerereResolved).toHaveLength(2);
+      expect(progress.rerereResolved[0]).toBe("src/config.ts");
+      expect(progress.rerereResolved[1]).toBe("src/utils.ts");
+    });
+
+    test("sync progress checking-conflicts state", () => {
+      const progress: SyncProgress = {
+        state: "checking-conflicts",
+        message: "Checking if rerere resolved conflicts...",
+        mergedBranch: "feature-1",
+        childBranches: ["feature-2"],
+        currentBranch: "feature-2",
+        error: null,
+        conflictedFiles: [],
+        rerereResolved: [],
+      };
+
+      expect(progress.state).toBe("checking-conflicts");
     });
   });
 
@@ -252,6 +295,46 @@ describe("view", () => {
       }
 
       expect(navItems).toHaveLength(0);
+    });
+  });
+
+  describe("ConflictState structure", () => {
+    test("conflict state includes all required fields", () => {
+      const conflictState: ConflictState = {
+        conflictedFiles: ["src/index.ts", "src/config.ts"],
+        rerereResolved: ["src/utils.ts"],
+        tipBranch: "feature-3",
+        originalBranch: "feature-1",
+      };
+
+      expect(conflictState.conflictedFiles).toHaveLength(2);
+      expect(conflictState.rerereResolved).toHaveLength(1);
+      expect(conflictState.tipBranch).toBe("feature-3");
+      expect(conflictState.originalBranch).toBe("feature-1");
+    });
+
+    test("conflict state can have no rerere resolved files", () => {
+      const conflictState: ConflictState = {
+        conflictedFiles: ["src/index.ts"],
+        rerereResolved: [],
+        tipBranch: "feature-2",
+        originalBranch: "main",
+      };
+
+      expect(conflictState.conflictedFiles).toHaveLength(1);
+      expect(conflictState.rerereResolved).toHaveLength(0);
+    });
+
+    test("conflict state with multiple unresolved conflicts", () => {
+      const conflictState: ConflictState = {
+        conflictedFiles: ["src/a.ts", "src/b.ts", "src/c.ts"],
+        rerereResolved: ["src/d.ts", "src/e.ts"],
+        tipBranch: "feature-5",
+        originalBranch: "feature-1",
+      };
+
+      expect(conflictState.conflictedFiles).toHaveLength(3);
+      expect(conflictState.rerereResolved).toHaveLength(2);
     });
   });
 

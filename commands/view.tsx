@@ -18,6 +18,8 @@ export type SyncState =
   | "idle"
   | "fetching"
   | "rebasing"
+  | "checking-conflicts"
+  | "awaiting-user"
   | "success"
   | "error";
 
@@ -28,6 +30,8 @@ export interface SyncProgress {
   childBranches: string[];
   currentBranch: string | null;
   error: string | null;
+  conflictedFiles: string[];
+  rerereResolved: string[];
 }
 
 // Sync status for a branch
@@ -262,6 +266,59 @@ function applyPRStatusUpdates(
   return { updated, hasChanges, newlyMerged };
 }
 
+// Check for unresolved conflicts (files with conflict markers)
+export async function getUnresolvedConflicts(): Promise<string[]> {
+  // Use git diff to find files with unmerged status
+  const result = await $`git diff --name-only --diff-filter=U`.quiet().nothrow();
+  if (result.exitCode !== 0) {
+    return [];
+  }
+  const output = result.stdout.toString().trim();
+  return output ? output.split("\n") : [];
+}
+
+// Check if rerere has resolved any conflicts
+export async function getRerereResolvedFiles(): Promise<string[]> {
+  // git rerere status shows files that rerere has recorded resolutions for
+  const result = await $`git rerere status`.quiet().nothrow();
+  if (result.exitCode !== 0) {
+    return [];
+  }
+  const output = result.stdout.toString().trim();
+  return output ? output.split("\n") : [];
+}
+
+// Get list of all conflicted files from the rebase
+export async function getAllConflictedFiles(): Promise<string[]> {
+  // git status --porcelain shows UU for both-modified (conflicts)
+  const result = await $`git status --porcelain`.quiet().nothrow();
+  if (result.exitCode !== 0) {
+    return [];
+  }
+  const lines = result.stdout.toString().trim().split("\n");
+  const conflicted: string[] = [];
+  for (const line of lines) {
+    // UU = both modified (conflict), AA = both added, etc.
+    if (line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DU ") || line.startsWith("UD ")) {
+      conflicted.push(line.slice(3));
+    }
+  }
+  return conflicted;
+}
+
+// Check if we're currently in a rebase
+export async function isRebaseInProgress(): Promise<boolean> {
+  const result = await $`git rev-parse --git-dir`.quiet().nothrow();
+  if (result.exitCode !== 0) return false;
+  const gitDir = result.stdout.toString().trim();
+
+  // Check for rebase-merge or rebase-apply directories
+  const rebaseMerge = await $`test -d ${gitDir}/rebase-merge`.quiet().nothrow();
+  const rebaseApply = await $`test -d ${gitDir}/rebase-apply`.quiet().nothrow();
+
+  return rebaseMerge.exitCode === 0 || rebaseApply.exitCode === 0;
+}
+
 // Perform sync operation: fetch, rebase with --update-refs, and update metadata
 export async function performSync(
   notification: MergedPRNotification,
@@ -277,6 +334,8 @@ export async function performSync(
     childBranches,
     currentBranch: null,
     error: null,
+    conflictedFiles: [],
+    rerereResolved: [],
   });
 
   // Step 1: Fetch latest from remote
@@ -290,6 +349,8 @@ export async function performSync(
       childBranches,
       currentBranch: null,
       error,
+      conflictedFiles: [],
+      rerereResolved: [],
     });
     return { success: false, error };
   }
@@ -309,6 +370,8 @@ export async function performSync(
       childBranches,
       currentBranch: null,
       error,
+      conflictedFiles: [],
+      rerereResolved: [],
     });
     return { success: false, error };
   }
@@ -328,6 +391,8 @@ export async function performSync(
       childBranches,
       currentBranch: firstChildBranch,
       error: null,
+      conflictedFiles: [],
+      rerereResolved: [],
     });
 
     // Save current branch to return to later
@@ -345,6 +410,8 @@ export async function performSync(
         childBranches,
         currentBranch: tipBranch,
         error,
+        conflictedFiles: [],
+        rerereResolved: [],
       });
       return { success: false, error };
     }
@@ -361,9 +428,117 @@ export async function performSync(
       const isConflict = stderr.includes("CONFLICT") || stderr.includes("could not apply");
 
       if (isConflict) {
-        // Abort the rebase so user is not left in conflicted state
-        await $`git rebase --abort`.quiet().nothrow();
-        const error = "Rebase failed due to conflicts. Please resolve manually.";
+        // Check if rerere has automatically resolved any conflicts
+        onProgress({
+          state: "checking-conflicts",
+          message: "Checking if rerere resolved conflicts...",
+          mergedBranch,
+          childBranches,
+          currentBranch: tipBranch,
+          error: null,
+          conflictedFiles: [],
+          rerereResolved: [],
+        });
+
+        // Get list of files rerere has resolved and files still in conflict
+        const [rerereResolved, unresolvedConflicts] = await Promise.all([
+          getRerereResolvedFiles(),
+          getUnresolvedConflicts(),
+        ]);
+
+        if (unresolvedConflicts.length === 0 && rerereResolved.length > 0) {
+          // Rerere resolved ALL conflicts - stage the resolved files and continue rebase
+          onProgress({
+            state: "rebasing",
+            message: `Rerere resolved ${rerereResolved.length} conflict(s), continuing rebase...`,
+            mergedBranch,
+            childBranches,
+            currentBranch: tipBranch,
+            error: null,
+            conflictedFiles: [],
+            rerereResolved,
+          });
+
+          // Stage all resolved files and continue rebase
+          for (const file of rerereResolved) {
+            await $`git add ${file}`.quiet().nothrow();
+          }
+
+          const continueResult = await $`git rebase --continue`.quiet().nothrow();
+          if (continueResult.exitCode !== 0) {
+            // Check for more conflicts in subsequent commits
+            const [moreRerereResolved, moreUnresolved] = await Promise.all([
+              getRerereResolvedFiles(),
+              getUnresolvedConflicts(),
+            ]);
+
+            if (moreUnresolved.length === 0 && moreRerereResolved.length > 0) {
+              // Keep resolving with rerere until done
+              let keepGoing = true;
+              while (keepGoing) {
+                for (const file of moreRerereResolved) {
+                  await $`git add ${file}`.quiet().nothrow();
+                }
+                const nextResult = await $`git rebase --continue`.quiet().nothrow();
+                if (nextResult.exitCode === 0) {
+                  keepGoing = false;
+                } else {
+                  const [nextRerere, nextUnresolved] = await Promise.all([
+                    getRerereResolvedFiles(),
+                    getUnresolvedConflicts(),
+                  ]);
+                  if (nextUnresolved.length > 0 || nextRerere.length === 0) {
+                    // Can't continue automatically, show conflicts to user
+                    const allConflicts = await getAllConflictedFiles();
+                    return {
+                      success: false,
+                      error: "unresolved-conflicts",
+                      conflictedFiles: allConflicts,
+                      rerereResolved: rerereResolved,
+                    } as { success: boolean; error?: string; conflictedFiles?: string[]; rerereResolved?: string[] };
+                  }
+                }
+              }
+            } else if (moreUnresolved.length > 0) {
+              // There are still unresolved conflicts
+              const allConflicts = await getAllConflictedFiles();
+              return {
+                success: false,
+                error: "unresolved-conflicts",
+                conflictedFiles: allConflicts,
+                rerereResolved: rerereResolved,
+              } as { success: boolean; error?: string; conflictedFiles?: string[]; rerereResolved?: string[] };
+            }
+          }
+          // Rebase continued successfully after rerere resolution
+        } else if (unresolvedConflicts.length > 0) {
+          // There are unresolved conflicts that rerere couldn't handle
+          const allConflicts = await getAllConflictedFiles();
+          return {
+            success: false,
+            error: "unresolved-conflicts",
+            conflictedFiles: allConflicts,
+            rerereResolved: rerereResolved,
+          } as { success: boolean; error?: string; conflictedFiles?: string[]; rerereResolved?: string[] };
+        } else {
+          // No rerere resolutions and conflicts detected - abort and report
+          await $`git rebase --abort`.quiet().nothrow();
+          const error = "Rebase failed due to conflicts. Please resolve manually.";
+          onProgress({
+            state: "error",
+            message: error,
+            mergedBranch,
+            childBranches,
+            currentBranch: tipBranch,
+            error,
+            conflictedFiles: [],
+            rerereResolved: [],
+          });
+          await $`git checkout ${originalBranch}`.quiet().nothrow();
+          return { success: false, error };
+        }
+      } else {
+        const error = `Rebase failed: ${stderr}`;
         onProgress({
           state: "error",
           message: error,
@@ -371,25 +546,14 @@ export async function performSync(
           childBranches,
           currentBranch: tipBranch,
           error,
+          conflictedFiles: [],
+          rerereResolved: [],
         });
-        // Return to original branch
+        // Try to abort and return to original branch
+        await $`git rebase --abort`.quiet().nothrow();
         await $`git checkout ${originalBranch}`.quiet().nothrow();
         return { success: false, error };
       }
-
-      const error = `Rebase failed: ${stderr}`;
-      onProgress({
-        state: "error",
-        message: error,
-        mergedBranch,
-        childBranches,
-        currentBranch: tipBranch,
-        error,
-      });
-      // Try to abort and return to original branch
-      await $`git rebase --abort`.quiet().nothrow();
-      await $`git checkout ${originalBranch}`.quiet().nothrow();
-      return { success: false, error };
     }
 
     // Return to original branch if it still exists
@@ -418,6 +582,8 @@ export async function performSync(
     childBranches,
     currentBranch: null,
     error: null,
+    conflictedFiles: [],
+    rerereResolved: [],
   });
 
   return { success: true };
@@ -429,6 +595,8 @@ function SyncProgressOverlay({ progress }: { progress: SyncProgress }) {
     idle: "",
     fetching: "📥",
     rebasing: "🔄",
+    "checking-conflicts": "🔍",
+    "awaiting-user": "⏸️",
     success: "✅",
     error: "❌",
   };
@@ -437,6 +605,8 @@ function SyncProgressOverlay({ progress }: { progress: SyncProgress }) {
     idle: "gray",
     fetching: "cyan",
     rebasing: "yellow",
+    "checking-conflicts": "cyan",
+    "awaiting-user": "yellow",
     success: "green",
     error: "red",
   };
@@ -459,6 +629,17 @@ function SyncProgressOverlay({ progress }: { progress: SyncProgress }) {
           {progress.childBranches.map((branch) => (
             <Text key={branch} color={branch === progress.currentBranch ? "yellow" : "gray"}>
               {"  "}{branch === progress.currentBranch ? "→ " : "  "}{branch}
+            </Text>
+          ))}
+        </Box>
+      )}
+
+      {progress.rerereResolved.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color="green">Rerere auto-resolved:</Text>
+          {progress.rerereResolved.map((file) => (
+            <Text key={file} color="green">
+              {"  "}✓ {file}
             </Text>
           ))}
         </Box>
@@ -788,6 +969,83 @@ function MergeNotificationOverlay({
   );
 }
 
+// Conflict resolution state
+export interface ConflictState {
+  conflictedFiles: string[];
+  rerereResolved: string[];
+  tipBranch: string;
+  originalBranch: string;
+}
+
+// Conflict resolution overlay component
+function ConflictResolutionOverlay({
+  conflictState,
+  onOpenEditor,
+  onAbort,
+}: {
+  conflictState: ConflictState;
+  onOpenEditor: () => void;
+  onAbort: () => void;
+}) {
+  useInput((input) => {
+    if (input.toLowerCase() === "e") {
+      onOpenEditor();
+    } else if (input.toLowerCase() === "a") {
+      onAbort();
+    }
+  });
+
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="yellow" padding={1}>
+      <Box marginBottom={1}>
+        <Text bold color="yellow">
+          ⚠️ Unresolved Conflicts
+        </Text>
+      </Box>
+
+      <Box marginBottom={1}>
+        <Text color="gray">
+          Rebase paused due to conflicts that need manual resolution.
+        </Text>
+      </Box>
+
+      {conflictState.rerereResolved.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color="green">Rerere auto-resolved:</Text>
+          {conflictState.rerereResolved.map((file) => (
+            <Text key={file} color="green">
+              {"  "}✓ {file}
+            </Text>
+          ))}
+        </Box>
+      )}
+
+      <Box flexDirection="column" marginBottom={1}>
+        <Text color="red">Files with conflicts:</Text>
+        {conflictState.conflictedFiles.map((file) => (
+          <Text key={file} color="red">
+            {"  "}✗ {file}
+          </Text>
+        ))}
+      </Box>
+
+      <Box marginTop={1}>
+        <Text bold>Options: </Text>
+        <Text color="cyan">[E]</Text>
+        <Text>dit in $EDITOR / </Text>
+        <Text color="red">[A]</Text>
+        <Text>bort rebase</Text>
+      </Box>
+
+      <Box marginTop={1}>
+        <Text color="gray">
+          After resolving conflicts, run: git add &lt;files&gt; && git rebase --continue
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
 // Loading state component
 function Loading() {
   return (
@@ -837,6 +1095,8 @@ function App() {
   const [mergeNotification, setMergeNotification] = useState<MergedPRNotification | null>(null);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [rerereStats, setRerereStats] = useState<RerereStats | null>(null);
+  const [conflictState, setConflictState] = useState<ConflictState | null>(null);
+  const [pendingNotification, setPendingNotification] = useState<MergedPRNotification | null>(null);
 
   // Initial load
   useEffect(() => {
@@ -919,11 +1179,24 @@ function App() {
 
     const notification = mergeNotification;
     setMergeNotification(null);
+    setPendingNotification(notification);
 
     // Start the sync operation
-    await performSync(notification, (progress) => {
+    const result = await performSync(notification, (progress) => {
       setSyncProgress(progress);
     });
+
+    // Check if there are unresolved conflicts
+    if (!result.success && result.error === "unresolved-conflicts") {
+      const resultWithConflicts = result as { success: boolean; error?: string; conflictedFiles?: string[]; rerereResolved?: string[] };
+      setSyncProgress(null);
+      setConflictState({
+        conflictedFiles: resultWithConflicts.conflictedFiles || [],
+        rerereResolved: resultWithConflicts.rerereResolved || [],
+        tipBranch: notification.childBranches[notification.childBranches.length - 1] || "",
+        originalBranch: await getCurrentBranch(),
+      });
+    }
   };
 
   // Handle dismissal of sync progress overlay
@@ -944,6 +1217,36 @@ function App() {
         // Ignore errors during reload
       }
     }
+  };
+
+  // Handle opening editor for conflict resolution
+  const handleOpenEditor = async () => {
+    if (!conflictState) return;
+
+    // Open the first conflicted file in the user's editor
+    const editor = process.env.EDITOR || process.env.VISUAL || "vim";
+    const firstFile = conflictState.conflictedFiles[0];
+    if (firstFile) {
+      // Exit the app so user can edit
+      exit();
+      console.log(`\nOpening ${firstFile} in ${editor}...`);
+      console.log(`After resolving conflicts, run: git add <files> && git rebase --continue\n`);
+      await $`${editor} ${firstFile}`.nothrow();
+    }
+  };
+
+  // Handle abort rebase from conflict state
+  const handleAbortRebase = async () => {
+    if (!conflictState) return;
+
+    await $`git rebase --abort`.quiet().nothrow();
+    await $`git checkout ${conflictState.originalBranch}`.quiet().nothrow();
+    setConflictState(null);
+    setPendingNotification(null);
+
+    // Reload current branch
+    const branch = await getCurrentBranch();
+    setCurrentBranch(branch);
   };
 
   // Handle dismissal of merge notification - mark child branches as pending-sync
@@ -996,6 +1299,16 @@ function App() {
         notification={mergeNotification}
         onSync={handleSync}
         onDismiss={handleDismissMergeNotification}
+      />
+    );
+  }
+
+  if (conflictState) {
+    return (
+      <ConflictResolutionOverlay
+        conflictState={conflictState}
+        onOpenEditor={handleOpenEditor}
+        onAbort={handleAbortRebase}
       />
     );
   }
