@@ -18,6 +18,7 @@ import {
   getParentBranch,
   getStackPosition,
   generateTitleFromBranchName,
+  updatePRMetadataAfterSync,
 } from "./createpr";
 
 // Sync operation state
@@ -27,6 +28,7 @@ export type SyncState =
   | "rebasing"
   | "checking-conflicts"
   | "awaiting-user"
+  | "updating-prs"
   | "success"
   | "error";
 
@@ -372,7 +374,8 @@ export async function isRebaseInProgress(): Promise<boolean> {
 // Perform sync operation: fetch, rebase with --update-refs, and update metadata
 export async function performSync(
   notification: MergedPRNotification,
-  onProgress: (progress: SyncProgress) => void
+  onProgress: (progress: SyncProgress) => void,
+  ghAuthenticated: boolean = false
 ): Promise<{ success: boolean; error?: string }> {
   const { branchName: mergedBranch, childBranches, stackName } = notification;
 
@@ -625,6 +628,27 @@ export async function performSync(
   // Step 5: Delete the local merged branch (optional but good cleanup)
   await $`git branch -d ${mergedBranch}`.quiet().nothrow();
 
+  // Step 6: Update PR metadata for affected branches (base branch, description, labels)
+  if (ghAuthenticated && childBranches.length > 0) {
+    onProgress({
+      state: "updating-prs",
+      message: "Updating PR metadata...",
+      mergedBranch,
+      childBranches,
+      currentBranch: null,
+      error: null,
+      conflictedFiles: [],
+      rerereResolved: [],
+    });
+
+    // Reload config to get updated stack (with merged branch removed)
+    const updatedConfig = await loadConfig(gitRoot);
+    const updatedStack = updatedConfig.stacks.find((s) => s.name === stackName);
+    if (updatedStack) {
+      await updatePRMetadataAfterSync(updatedStack, childBranches, ghAuthenticated);
+    }
+  }
+
   onProgress({
     state: "success",
     message: "Sync completed successfully!",
@@ -738,6 +762,7 @@ function SyncProgressOverlay({ progress }: { progress: SyncProgress }) {
     rebasing: "🔄",
     "checking-conflicts": "🔍",
     "awaiting-user": "⏸️",
+    "updating-prs": "📝",
     success: "✅",
     error: "❌",
   };
@@ -748,6 +773,7 @@ function SyncProgressOverlay({ progress }: { progress: SyncProgress }) {
     rebasing: "yellow",
     "checking-conflicts": "cyan",
     "awaiting-user": "yellow",
+    "updating-prs": "cyan",
     success: "green",
     error: "red",
   };
@@ -1563,7 +1589,7 @@ function App() {
     // Start the sync operation
     const result = await performSync(notification, (progress) => {
       setSyncProgress(progress);
-    });
+    }, ghAuthenticated);
 
     // Check if there are unresolved conflicts
     if (!result.success && result.error === "unresolved-conflicts") {

@@ -137,7 +137,7 @@ export async function generateStackVisualization(
 /**
  * Create or get the stack position label
  */
-async function ensureStackLabel(position: number, total: number): Promise<string> {
+export async function ensureStackLabel(position: number, total: number): Promise<string> {
   const labelName = `stack:${position}/${total}`;
 
   // Try to create the label (will fail silently if it exists)
@@ -151,7 +151,7 @@ async function ensureStackLabel(position: number, total: number): Promise<string
 /**
  * Check if a PR already exists for the branch
  */
-async function getPRForBranch(
+export async function getPRForBranch(
   branchName: string
 ): Promise<{ exists: boolean; number?: number; url?: string }> {
   const result = await $`gh pr view ${branchName} --json number,url`
@@ -270,4 +270,134 @@ export async function createPR(options?: CreatePROptions): Promise<CreatePRResul
     prNumber: prInfo.number,
     prUrl: prInfo.url,
   };
+}
+
+export interface UpdatePRMetadataResult {
+  branchName: string;
+  success: boolean;
+  updatedBase?: boolean;
+  updatedBody?: boolean;
+  updatedLabel?: boolean;
+  error?: string;
+}
+
+/**
+ * Remove a label from a PR
+ */
+async function removePRLabel(branchName: string, labelName: string): Promise<void> {
+  await $`gh pr edit ${branchName} --remove-label ${labelName}`.quiet().nothrow();
+}
+
+/**
+ * Update PR metadata after sync.
+ * Updates base branch, stack visualization, and position labels for affected PRs.
+ */
+export async function updatePRMetadataAfterSync(
+  stack: Stack,
+  affectedBranches: string[],
+  ghAuthenticated: boolean
+): Promise<UpdatePRMetadataResult[]> {
+  if (!ghAuthenticated) {
+    return affectedBranches.map((branchName) => ({
+      branchName,
+      success: false,
+      error: "GitHub CLI not authenticated",
+    }));
+  }
+
+  const results: UpdatePRMetadataResult[] = [];
+
+  for (const branchName of affectedBranches) {
+    // Check if PR exists for this branch
+    const prInfo = await getPRForBranch(branchName);
+    if (!prInfo.exists) {
+      results.push({
+        branchName,
+        success: true,
+        updatedBase: false,
+        updatedBody: false,
+        updatedLabel: false,
+      });
+      continue;
+    }
+
+    const result: UpdatePRMetadataResult = {
+      branchName,
+      success: true,
+      updatedBase: false,
+      updatedBody: false,
+      updatedLabel: false,
+    };
+
+    // Get new parent branch (base for this PR)
+    const newBaseBranch = getParentBranch(stack, branchName);
+
+    // Get current PR details to check if base needs updating
+    const prDetailsResult = await $`gh pr view ${branchName} --json baseRefName,labels`
+      .quiet()
+      .nothrow();
+
+    let currentBase = "";
+    let currentLabels: Array<{ name: string }> = [];
+    if (prDetailsResult.exitCode === 0) {
+      try {
+        const details = JSON.parse(prDetailsResult.stdout.toString());
+        currentBase = details.baseRefName;
+        currentLabels = details.labels || [];
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    // Update base branch if it changed
+    if (currentBase && currentBase !== newBaseBranch) {
+      const baseUpdateResult = await $`gh pr edit ${branchName} --base ${newBaseBranch}`
+        .quiet()
+        .nothrow();
+
+      if (baseUpdateResult.exitCode === 0) {
+        result.updatedBase = true;
+      } else {
+        result.success = false;
+        result.error = `Failed to update base branch: ${baseUpdateResult.stderr.toString()}`;
+        results.push(result);
+        continue;
+      }
+    }
+
+    // Get new stack position
+    const { position: newPosition, total: newTotal } = getStackPosition(stack, branchName);
+
+    // Remove old stack labels and add new one
+    const oldStackLabels = currentLabels
+      .map((l) => l.name)
+      .filter((name) => name.startsWith("stack:"));
+
+    for (const oldLabel of oldStackLabels) {
+      await removePRLabel(branchName, oldLabel);
+    }
+
+    const newLabelName = await ensureStackLabel(newPosition, newTotal);
+    const addLabelResult = await $`gh pr edit ${branchName} --add-label ${newLabelName}`
+      .quiet()
+      .nothrow();
+
+    if (addLabelResult.exitCode === 0) {
+      result.updatedLabel = true;
+    }
+
+    // Generate new stack visualization and update PR body
+    const newStackViz = await generateStackVisualization(stack, branchName, ghAuthenticated);
+    const bodyUpdateResult = await $`gh pr edit ${branchName} --body ${newStackViz}`
+      .quiet()
+      .nothrow();
+
+    if (bodyUpdateResult.exitCode === 0) {
+      result.updatedBody = true;
+    }
+
+    results.push(result);
+  }
+
+  return results;
 }
