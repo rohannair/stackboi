@@ -7,8 +7,8 @@ dist
 *.tgz
 
 # platform binaries (keep package.json, ignore binaries)
-npm/*/stackboi
-npm/*/stackboi.exe
+npm/*/sb
+npm/*/sb.exe
 
 # code coverage
 coverage

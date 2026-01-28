@@ -43,7 +43,7 @@ async function updatePackageJson(filePath: string, newVersion: string): Promise<
   // Update optionalDependencies if present (main package)
   if (pkg.optionalDependencies) {
     for (const dep of Object.keys(pkg.optionalDependencies)) {
-      if (dep.startsWith('@stackboi/')) {
+      if (dep.startsWith('@0xrohan10/stackboi-')) {
         pkg.optionalDependencies[dep] = newVersion
       }
     }

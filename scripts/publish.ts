@@ -73,7 +73,7 @@ async function main(): Promise<void> {
       continue
     }
 
-    const success = await publishPackage(pkgDir, `@stackboi/${platform}`, dryRun, otp)
+    const success = await publishPackage(pkgDir, `@0xrohan10/stackboi-${platform}`, dryRun, otp)
     if (!success && !dryRun) {
       console.error('Aborting due to publish failure')
       process.exit(1)

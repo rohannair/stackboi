@@ -1,14 +1,14 @@
 {
   "name": "@stackboi/linux-x64",
-  "version": "0.1.2",
-  "description": "stackboi binary for linux-x64",
+  "version": "0.1.1",
+  "description": "sb binary for linux-x64",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/stackboi/stackboi"
   },
   "bin": {
-    "stackboi": "./stackboi"
+    "sb": "./sb"
   },
   "os": [
     "linux"

@@ -7,11 +7,11 @@ import path from 'node:path'
 const require = createRequire(import.meta.url)
 
 const PLATFORMS = {
-  'darwin-arm64': '@stackboi/darwin-arm64',
-  'darwin-x64': '@stackboi/darwin-x64',
-  'linux-x64': '@stackboi/linux-x64',
-  'linux-arm64': '@stackboi/linux-arm64',
-  'win32-x64': '@stackboi/win32-x64',
+  'darwin-arm64': '@0xrohan10/stackboi-darwin-arm64',
+  'darwin-x64': '@0xrohan10/stackboi-darwin-x64',
+  'linux-x64': '@0xrohan10/stackboi-linux-x64',
+  'linux-arm64': '@0xrohan10/stackboi-linux-arm64',
+  'win32-x64': '@0xrohan10/stackboi-win32-x64',
 }
 
 function getPlatformPackage() {

@@ -52,19 +52,16 @@ async function buildPlatform(platform: Platform, version: string): Promise<void>
 
   // Create package.json for this platform
   const pkgJson = {
-    name: `@stackboi/${platform.name}`,
+    name: `@0xrohan10/stackboi-${platform.name}`,
     version,
-    description: `sb binary for ${platform.name}`,
-    license: 'MIT',
+    description: `stackboi binary for ${platform.name}`,
+    license: 'GPL-3.0',
     repository: {
       type: 'git',
-      url: 'https://github.com/stackboi/stackboi',
+      url: 'https://github.com/0xrohan10/stackboi',
     },
     os: [platform.os],
     cpu: [platform.arch],
-    bin: {
-      sb: `./${binName}`,
-    },
   }
 
   await Bun.write(path.join(outDir, 'package.json'), JSON.stringify(pkgJson, null, 2) + '\n')
