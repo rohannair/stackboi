@@ -1,6 +1,6 @@
 {
   "name": "@stackboi/darwin-arm64",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "stackboi binary for darwin-arm64",
   "license": "MIT",
   "repository": {

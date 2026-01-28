@@ -1,6 +1,6 @@
 {
   "name": "@stackboi/linux-arm64",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "stackboi binary for linux-arm64",
   "license": "MIT",
   "repository": {
