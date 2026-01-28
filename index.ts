@@ -9,6 +9,7 @@ import { addBranch } from './commands/add'
 import { view } from './commands/view'
 import { createPR } from './commands/createpr'
 import { showLicense } from './commands/license'
+import pkg from './package.json'
 
 // Commands (exported for testing)
 
@@ -69,7 +70,7 @@ export const command = Command.make('stackboi', {}).pipe(
 
 export const cli = Command.run(command, {
   name: 'stackboi',
-  version: '0.1.0',
+  version: pkg.version,
 })
 
 // Only run when executed directly (not imported)
