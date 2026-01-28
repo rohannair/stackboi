@@ -3,10 +3,10 @@
   "sessionId": "a151e077-4d21-4efb-ad9d-a5f3d204010f",
   "status": "running",
   "startedAt": "2026-01-28T21:04:10.863Z",
-  "updatedAt": "2026-01-28T21:31:51.253Z",
-  "currentIteration": 6,
+  "updatedAt": "2026-01-28T21:34:37.387Z",
+  "currentIteration": 7,
   "maxIterations": 25,
-  "tasksCompleted": 6,
+  "tasksCompleted": 7,
   "isPaused": false,
   "agentPlugin": "claude",
   "trackerState": {
@@ -53,8 +53,8 @@
       {
         "id": "US-007",
         "title": "Sync stack after merge (rebase with --update-refs)",
-        "status": "open",
-        "completedInSession": false
+        "status": "completed",
+        "completedInSession": true
       },
       {
         "id": "US-008",
@@ -172,6 +172,16 @@
       "durationMs": 191806,
       "startedAt": "2026-01-28T21:25:08.898Z",
       "endedAt": "2026-01-28T21:28:20.704Z"
+    },
+    {
+      "iteration": 7,
+      "status": "completed",
+      "taskId": "US-007",
+      "taskTitle": "Sync stack after merge (rebase with --update-refs)",
+      "taskCompleted": true,
+      "durationMs": 209336,
+      "startedAt": "2026-01-28T21:28:21.907Z",
+      "endedAt": "2026-01-28T21:31:51.243Z"
     }
   ],
   "skippedTaskIds": [],

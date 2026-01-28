@@ -80,6 +80,39 @@ export async function getDefaultBranch(): Promise<string> {
   return "main";
 }
 
+export async function configureGitRerere(enabled: boolean, autoupdate: boolean): Promise<void> {
+  // Configure rerere.enabled in local git config
+  await $`git config rerere.enabled ${enabled ? "true" : "false"}`.quiet();
+  // Configure rerere.autoUpdate for automatic staging of resolved conflicts
+  await $`git config rerere.autoUpdate ${autoupdate ? "true" : "false"}`.quiet();
+}
+
+export interface RerereStats {
+  trainedResolutions: number;
+}
+
+export async function getRerereStats(): Promise<RerereStats> {
+  const gitRoot = await getGitRoot();
+  const rrCachePath = `${gitRoot}/.git/rr-cache`;
+
+  // Count directories in rr-cache (each represents a trained resolution)
+  const rrCacheDir = Bun.file(rrCachePath);
+  let trainedResolutions = 0;
+
+  try {
+    // Use readdir to count entries in rr-cache
+    const result = await $`ls -1 ${rrCachePath} 2>/dev/null`.quiet().nothrow();
+    if (result.exitCode === 0) {
+      const entries = result.stdout.toString().trim();
+      trainedResolutions = entries ? entries.split("\n").length : 0;
+    }
+  } catch {
+    // rr-cache doesn't exist or is inaccessible - that's fine, just 0 resolutions
+  }
+
+  return { trainedResolutions };
+}
+
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 
 export function createDefaultConfig(defaultBranch: string): StackboiConfig {
@@ -150,6 +183,10 @@ export async function init(options?: InitOptions): Promise<void> {
 
   await Bun.write(configPath, JSON.stringify(config, null, 2) + "\n");
   console.log(`Created ${CONFIG_FILE}`);
+
+  // Configure git rerere
+  await configureGitRerere(config.settings.rerere.enabled, config.settings.rerere.autoupdate);
+  console.log("Configured git rerere (enabled=true, autoUpdate=true)");
 
   const shouldAddToGitignore =
     options?.addToGitignore !== undefined

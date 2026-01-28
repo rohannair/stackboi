@@ -4,9 +4,11 @@ import { $ } from "bun";
 import {
   type StackboiConfig,
   type Stack,
+  type RerereStats,
   getGitRoot,
   isGitRepo,
   checkGhAuth,
+  getRerereStats,
   DEFAULT_POLL_INTERVAL_MS,
 } from "./init";
 import { loadConfig, saveConfig, getCurrentBranch } from "./new";
@@ -613,17 +615,35 @@ function buildNavItems(stacks: StackWithInfo[]): NavItem[] {
   return items;
 }
 
+// Rerere status component
+function RerereStatus({ stats }: { stats: RerereStats | null }) {
+  if (!stats) {
+    return null;
+  }
+
+  return (
+    <Box>
+      <Text color="gray">rerere: </Text>
+      <Text color={stats.trainedResolutions > 0 ? "green" : "gray"}>
+        {stats.trainedResolutions} trained resolution{stats.trainedResolutions !== 1 ? "s" : ""}
+      </Text>
+    </Box>
+  );
+}
+
 // Main tree view component
 function TreeView({
   stacks,
   currentBranch,
   onSelect,
   isPolling,
+  rerereStats,
 }: {
   stacks: StackWithInfo[];
   currentBranch: string;
   onSelect: (branchName: string) => void;
   isPolling: boolean;
+  rerereStats: RerereStats | null;
 }) {
   const { exit } = useApp();
   const navItems = buildNavItems(stacks);
@@ -694,6 +714,10 @@ function TreeView({
         <Text color="gray"> conflicts  </Text>
         <Text color="cyan">⟲</Text>
         <Text color="gray"> pending-sync</Text>
+      </Box>
+
+      <Box marginTop={1}>
+        <RerereStatus stats={rerereStats} />
       </Box>
     </Box>
   );
@@ -812,19 +836,22 @@ function App() {
   const [isPolling, setIsPolling] = useState(false);
   const [mergeNotification, setMergeNotification] = useState<MergedPRNotification | null>(null);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
+  const [rerereStats, setRerereStats] = useState<RerereStats | null>(null);
 
   // Initial load
   useEffect(() => {
     async function load() {
       try {
-        const [branch, gitRoot, authenticated] = await Promise.all([
+        const [branch, gitRoot, authenticated, stats] = await Promise.all([
           getCurrentBranch(),
           getGitRoot(),
           checkGhAuth(),
+          getRerereStats(),
         ]);
 
         setCurrentBranch(branch);
         setGhAuthenticated(authenticated);
+        setRerereStats(stats);
         const config = await loadConfig(gitRoot);
         setPollIntervalMs(config.settings.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
         const stacksWithInfo = await getStacksWithInfo(config, authenticated);
@@ -979,6 +1006,7 @@ function App() {
       currentBranch={currentBranch}
       onSelect={handleSelect}
       isPolling={isPolling}
+      rerereStats={rerereStats}
     />
   );
 }
